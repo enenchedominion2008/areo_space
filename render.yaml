@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: vanguard-vector
+    name: areo-space
     runtime: docker
     plan: free
     dockerfilePath: ./Dockerfile
