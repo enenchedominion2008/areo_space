@@ -10,3 +10,9 @@ body,
   overflow: hidden;
   background-color: #02060d;
 }
+
+@media (orientation: portrait) and (pointer: coarse) {
+  .rotate-device-overlay {
+    display: flex;
+  }
+}

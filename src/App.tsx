@@ -58,6 +58,17 @@ function detectTouchDevice(): boolean {
   );
 }
 
+function enterMobileLandscape(): void {
+  if (!detectTouchDevice()) return;
+
+  const fullscreen = document.documentElement.requestFullscreen;
+  if (fullscreen) {
+    void fullscreen.call(document.documentElement)
+      .then(() => screen.orientation?.lock('landscape').catch(() => {}))
+      .catch(() => {});
+  }
+}
+
 export default function App() {
   const canvasMountRef = useRef<HTMLDivElement | null>(null);
   const engineRef = useRef<SpaceShooterEngine | null>(null);
@@ -166,6 +177,7 @@ export default function App() {
   }, [showToast]);
 
   const handleStartNewGame = useCallback((startLevel = 1) => {
+    enterMobileLandscape();
     setLastRunCredits(null);
     setActiveTab('none');
     engineRef.current?.startNewGame(backendStateRef.current?.profile, startLevel);
@@ -392,6 +404,16 @@ export default function App() {
           onTriggerBarrelRoll={handleTriggerBarrelRoll}
           onTouchSteer={handleTouchSteer}
         />
+      )}
+
+      {hud.phase === 'playing' && touchMode && (
+        <div className="rotate-device-overlay fixed inset-0 z-40 hidden items-center justify-center bg-[#02060d]/95 p-8 text-center font-mono">
+          <div className="max-w-sm">
+            <div className="mb-4 text-6xl text-emerald-300" aria-hidden="true">↻</div>
+            <h2 className="text-xl font-black uppercase tracking-[0.16em] text-white">Rotate your phone</h2>
+            <p className="mt-3 text-sm leading-6 text-emerald-100/75">Turn your device sideways to play in landscape.</p>
+          </div>
+        </div>
       )}
 
       <GameModals
