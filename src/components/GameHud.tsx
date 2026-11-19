@@ -158,31 +158,31 @@ export const GameHud: React.FC<GameHudProps> = ({
               type="button"
               onClick={onToggleTouchMode}
               title="Toggle Mobile Touch Controls"
-              className={`p-1.5 border rounded-sm transition-colors ${
+              className={`p-1 border rounded-sm transition-colors ${
                 touchMode
                   ? 'bg-sky-500/25 border-sky-400 text-sky-200'
                   : 'bg-[#040b14]/85 border-slate-600/60 text-slate-300 hover:border-emerald-400/60'
               }`}
             >
-              <Smartphone className="w-4 h-4" />
+              <Smartphone className="w-3.5 h-3.5" />
             </button>
 
             <button
               type="button"
               onClick={onToggleMute}
               title={muted ? 'Unmute Audio' : 'Mute Audio'}
-              className="p-1.5 bg-[#040b14]/85 border border-slate-600/60 hover:border-emerald-400/60 text-slate-200 rounded-sm transition-colors"
+              className="p-1 bg-[#040b14]/85 border border-slate-600/60 hover:border-emerald-400/60 text-slate-200 rounded-sm transition-colors"
             >
-              {muted ? <VolumeX className="w-4 h-4 text-rose-400" /> : <Volume2 className="w-4 h-4 text-emerald-300" />}
+              {muted ? <VolumeX className="w-3.5 h-3.5 text-rose-400" /> : <Volume2 className="w-3.5 h-3.5 text-emerald-300" />}
             </button>
 
             <button
               type="button"
               onClick={onPause}
               title="Pause & Save Checkpoint (Esc)"
-              className="px-2.5 py-1.5 bg-[#040b14]/85 border border-emerald-400/45 hover:bg-emerald-500/20 text-emerald-200 text-[11px] font-semibold tracking-wider uppercase rounded-sm flex items-center gap-1 transition-colors"
+              className="px-2 py-1 bg-[#040b14]/85 border border-emerald-400/45 hover:bg-emerald-500/20 text-emerald-200 text-[10px] font-semibold tracking-wider uppercase rounded-sm flex items-center gap-1 transition-colors"
             >
-              <Pause className="w-3.5 h-3.5" />
+              <Pause className="w-3 h-3" />
               <span className="hidden sm:inline">Menu</span>
             </button>
           </div>
