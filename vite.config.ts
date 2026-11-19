@@ -10,6 +10,21 @@ export default defineConfig(() => {
     plugins: [
       react(),
       tailwindcss(),
+      {
+        name: 'disable-hmr-websocket',
+        apply: 'serve',
+        transform(code: string, id: string) {
+          if (
+            process.env.DISABLE_HMR === 'true' &&
+            id.split('?')[0].endsWith('/vite/dist/client/client.mjs')
+          ) {
+            return code.replace(
+              'transport.connect(createHMRHandler(handleMessage));',
+              '/* HMR WebSocket disabled */'
+            );
+          }
+        },
+      },
       VitePWA({
         registerType: 'autoUpdate',
         includeAssets: ['icon.svg', 'apple-touch-icon.png'],
@@ -78,6 +93,7 @@ export default defineConfig(() => {
     },
     server: {
       hmr: process.env.DISABLE_HMR !== 'true',
+      ws: process.env.DISABLE_HMR === 'true' ? (false as const) : undefined,
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
     },
   };

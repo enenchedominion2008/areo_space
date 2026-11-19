@@ -1,6 +1,7 @@
 import express from 'express';
 import { spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
+import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -56,6 +57,7 @@ async function createServer(): Promise<void> {
   await waitForPythonReady();
 
   const app = express();
+  const httpServer = http.createServer(app);
   app.use(express.json({ limit: '1mb' }));
 
   // Proxy all /api/* requests directly to the Python SQLite backend
@@ -81,11 +83,14 @@ async function createServer(): Promise<void> {
   });
 
   if (!IS_PROD) {
+    const hmrDisabled = process.env.DISABLE_HMR === 'true';
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: {
         middlewareMode: true,
-        hmr: process.env.DISABLE_HMR !== 'true',
+        hmr: hmrDisabled ? false : { server: httpServer },
+        ws: hmrDisabled ? false : { server: httpServer },
+        watch: hmrDisabled ? null : {},
       },
       appType: 'spa',
     });
@@ -103,7 +108,7 @@ async function createServer(): Promise<void> {
     });
   }
 
-  const server = app.listen(PORT, '0.0.0.0', () => {
+  const server = httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`[server] Vanguard Vector running at http://0.0.0.0:${PORT} (Python backend -> ${PYTHON_URL})`);
   });
 
