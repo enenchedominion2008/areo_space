@@ -1,0 +1,393 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  deleteCheckpointFromPython,
+  fetchBackendState,
+  purchaseUpgradeFromPython,
+  reviveRunWithCredits,
+  saveCheckpointToPython,
+  selectJetInPython,
+  submitScoreToPython,
+  updatePilotNameInPython,
+} from './api/saveClient';
+import { GameHud } from './components/GameHud';
+import { GameModals } from './components/GameModals';
+import { SpaceShooterEngine } from './game/engine';
+import type { BackendState, GameCheckpointPayload, HudSnapshot, JetId, SaveSlotRecord } from './game/types';
+
+const INITIAL_HUD: HudSnapshot = {
+  phase: 'title',
+  jetId: 'vanguard',
+  score: 0,
+  highScore: 0,
+  multiplier: 1,
+  maxMultiplier: 1,
+  comboTimer: 0,
+  wave: 1,
+  totalLevels: 20,
+  waveProgress: 0,
+  waveTotal: 6,
+  kills: 0,
+  shotsFired: 0,
+  shotsHit: 0,
+  health: 100,
+  maxHealth: 100,
+  shield: 100,
+  maxShield: 100,
+  laserLevel: 1,
+  weaponPattern: 'twin',
+  specialName: 'HYPER OVERDRIVE',
+  specialCooldown: 0,
+  specialMaxCooldown: 11,
+  specialActiveTimer: 0,
+  barrelRollCooldown: 0,
+  sectorMode: 'emerald_trench',
+  arenaName: 'EMERALD CYBER-TRENCH',
+  dangerAlert: false,
+  bannerText: null,
+  bossName: null,
+  bossHpRatio: 0,
+  radarBlips: [],
+};
+
+function detectTouchDevice(): boolean {
+  if (typeof window === 'undefined') return false;
+  return (
+    window.matchMedia('(pointer: coarse)').matches ||
+    'ontouchstart' in window ||
+    window.innerWidth <= 820
+  );
+}
+
+export default function App() {
+  const canvasMountRef = useRef<HTMLDivElement | null>(null);
+  const engineRef = useRef<SpaceShooterEngine | null>(null);
+  const backendStateRef = useRef<BackendState | null>(null);
+
+  const [hud, setHud] = useState<HudSnapshot>(INITIAL_HUD);
+  const [backendState, setBackendState] = useState<BackendState | null>(null);
+  const [backendStatus, setBackendStatus] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [muted, setMuted] = useState(false);
+  const [touchMode, setTouchMode] = useState<boolean>(() => detectTouchDevice());
+  const [lastRunCredits, setLastRunCredits] = useState<number | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'none' | 'slots' | 'hangar' | 'leaderboard'>('none');
+
+  const showToast = useCallback((msg: string) => {
+    setToast(msg);
+    window.setTimeout(() => {
+      setToast((prev) => (prev === msg ? null : prev));
+    }, 2400);
+  }, []);
+
+  // Load initial Python SQLite state & health status
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const [healthRes, state] = await Promise.all([
+          fetch('/api/health').then((r) => (r.ok ? r.json() : null)),
+          fetchBackendState(),
+        ]);
+        if (!active) return;
+        backendStateRef.current = state;
+        setBackendState(state);
+        engineRef.current?.setHighScore(state.profile.high_score ?? 0);
+        if (state.profile.selected_jet) {
+          engineRef.current?.setSelectedJet(state.profile.selected_jet);
+        }
+        if (healthRes?.python_version) {
+          setBackendStatus(`PYTHON ${healthRes.python_version} · SQLITE`);
+        }
+      } catch {
+        if (active) setBackendStatus('PYTHON BACKEND OFFLINE');
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // Mount isolated Three.js engine once
+  useEffect(() => {
+    const mount = canvasMountRef.current;
+    if (!mount) return;
+
+    const engine = new SpaceShooterEngine(
+      mount,
+      {
+        onHudUpdate: (snapshot) => {
+          setHud(snapshot);
+        },
+        onWaveCleared: (checkpoint: GameCheckpointPayload) => {
+          const pilotName = backendStateRef.current?.profile.pilot_name || 'VANGUARD-01';
+          saveCheckpointToPython('autosave', pilotName, checkpoint)
+            .then((res) => {
+              backendStateRef.current = res.state;
+              setBackendState(res.state);
+              showToast(`LEVEL ${checkpoint.wave - 1} CLEARED · CHECKPOINT SAVED`);
+            })
+            .catch(() => {});
+        },
+        onGameOver: (summary) => {
+          const pilotName = backendStateRef.current?.profile.pilot_name || 'VANGUARD-01';
+          const selectedJet = backendStateRef.current?.profile.selected_jet || 'vanguard';
+          submitScoreToPython({
+            pilotName,
+            selectedJet,
+            score: summary.score,
+            wave: summary.wave,
+            kills: summary.kills,
+            maxMultiplier: summary.maxMultiplier,
+            accuracy: summary.accuracy,
+            clearAutosave: true,
+          })
+            .then((res) => {
+              backendStateRef.current = res.state;
+              setBackendState(res.state);
+              setLastRunCredits(res.earned_credits);
+              engine.setHighScore(res.state.profile.high_score ?? summary.score);
+            })
+            .catch(() => {});
+        },
+      },
+      backendStateRef.current?.profile.high_score ?? 0,
+      backendStateRef.current?.profile.selected_jet ?? 'vanguard'
+    );
+
+    engineRef.current = engine;
+    return () => {
+      engine.dispose();
+      engineRef.current = null;
+    };
+  }, [showToast]);
+
+  const handleStartNewGame = useCallback((startLevel = 1) => {
+    setLastRunCredits(null);
+    setActiveTab('none');
+    engineRef.current?.startNewGame(backendStateRef.current?.profile, startLevel);
+  }, []);
+
+  const handleResumeGame = useCallback(() => {
+    setActiveTab('none');
+    engineRef.current?.setPaused(false);
+  }, []);
+
+  const handlePause = useCallback(() => {
+    engineRef.current?.setPaused(true);
+  }, []);
+
+  const handleToggleMute = useCallback(() => {
+    if (!engineRef.current) return;
+    const next = engineRef.current.audio.toggleMute();
+    setMuted(next);
+  }, []);
+
+  const handleToggleTouchMode = useCallback(() => {
+    setTouchMode((prev) => !prev);
+  }, []);
+
+  const handleTriggerSpecial = useCallback(() => {
+    engineRef.current?.triggerSpecial();
+  }, []);
+
+  const handleTriggerBarrelRoll = useCallback(() => {
+    engineRef.current?.triggerBarrelRoll();
+  }, []);
+
+  const handleTouchSteer = useCallback((nx: number, ny: number) => {
+    engineRef.current?.setTouchSteer(nx, ny);
+  }, []);
+
+  const handleSaveToSlot = useCallback(
+    async (slotId: string) => {
+      if (!engineRef.current) return;
+      setBusy(true);
+      try {
+        const checkpoint = engineRef.current.exportCheckpoint();
+        const pilotName = backendStateRef.current?.profile.pilot_name || 'VANGUARD-01';
+        const res = await saveCheckpointToPython(slotId, pilotName, checkpoint);
+        backendStateRef.current = res.state;
+        setBackendState(res.state);
+        showToast(`SAVED TO ${slotId.toUpperCase()} (PYTHON SQLITE)`);
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : 'Save failed');
+      } finally {
+        setBusy(false);
+      }
+    },
+    [showToast]
+  );
+
+  const handleLoadSlot = useCallback(
+    (slot: SaveSlotRecord) => {
+      setLastRunCredits(null);
+      setActiveTab('none');
+      engineRef.current?.restoreCheckpoint(slot.payload, backendStateRef.current?.profile);
+      showToast(`LOADED ${slot.slot_id.toUpperCase()} · LEVEL ${slot.wave}`);
+    },
+    [showToast]
+  );
+
+  const handleDeleteSlot = useCallback(
+    async (slotId: string) => {
+      setBusy(true);
+      try {
+        const state = await deleteCheckpointFromPython(slotId);
+        backendStateRef.current = state;
+        setBackendState(state);
+        showToast(`DELETED ${slotId.toUpperCase()}`);
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : 'Delete failed');
+      } finally {
+        setBusy(false);
+      }
+    },
+    [showToast]
+  );
+
+  const handlePurchaseUpgrade = useCallback(
+    async (type: 'hull_upgrade' | 'shield_upgrade' | 'laser_upgrade') => {
+      setBusy(true);
+      try {
+        const state = await purchaseUpgradeFromPython(type);
+        backendStateRef.current = state;
+        setBackendState(state);
+        showToast('HANGAR UPGRADE INSTALLED');
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : 'Upgrade failed');
+      } finally {
+        setBusy(false);
+      }
+    },
+    [showToast]
+  );
+
+  const handleSelectJet = useCallback(
+    async (jetId: JetId) => {
+      engineRef.current?.setSelectedJet(jetId);
+      setBusy(true);
+      try {
+        const state = await selectJetInPython(jetId);
+        backendStateRef.current = state;
+        setBackendState(state);
+        showToast(`JET SELECTED: ${jetId.toUpperCase()}`);
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : 'Jet selection failed');
+      } finally {
+        setBusy(false);
+      }
+    },
+    [showToast]
+  );
+
+  const handleUpdatePilotName = useCallback(
+    async (name: string) => {
+      setBusy(true);
+      try {
+        const state = await updatePilotNameInPython(name);
+        backendStateRef.current = state;
+        setBackendState(state);
+        showToast('PILOT CALLSIGN UPDATED');
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : 'Update failed');
+      } finally {
+        setBusy(false);
+      }
+    },
+    [showToast]
+  );
+
+  const handleReviveWithCredits = useCallback(async () => {
+    setBusy(true);
+    try {
+      const state = await reviveRunWithCredits();
+      backendStateRef.current = state;
+      setBackendState(state);
+      setLastRunCredits(null);
+      setActiveTab('none');
+      engineRef.current?.reviveCurrentLevel();
+      showToast('CONTINUE ACTIVATED · -1,000 CR');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Continue failed');
+    } finally {
+      setBusy(false);
+    }
+  }, [showToast]);
+
+  const handleReturnToTitle = useCallback(() => {
+    setActiveTab('none');
+    engineRef.current?.returnToTitle();
+  }, []);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.code === 'Escape' || e.code === 'KeyP') {
+        if (activeTab !== 'none') {
+          setActiveTab('none');
+          return;
+        }
+        const phase = engineRef.current?.getPhase();
+        if (phase === 'playing') {
+          engineRef.current?.setPaused(true);
+        } else if (phase === 'paused') {
+          engineRef.current?.setPaused(false);
+        }
+      } else if (e.code === 'Enter' && activeTab === 'none') {
+        if (engineRef.current?.getPhase() === 'title') {
+          handleStartNewGame(1);
+        }
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [activeTab, handleStartNewGame]);
+
+  return (
+    <div className="relative w-screen h-screen overflow-hidden bg-[#02060d] touch-none">
+      <div ref={canvasMountRef} className="fixed inset-0 w-full h-full touch-none" />
+
+      {hud.phase === 'playing' && (
+        <GameHud
+          hud={hud}
+          muted={muted}
+          touchMode={touchMode}
+          onToggleTouchMode={handleToggleTouchMode}
+          onToggleMute={handleToggleMute}
+          onPause={handlePause}
+          onTriggerSpecial={handleTriggerSpecial}
+          onTriggerBarrelRoll={handleTriggerBarrelRoll}
+          onTouchSteer={handleTouchSteer}
+        />
+      )}
+
+      <GameModals
+        phase={hud.phase}
+        hud={hud}
+        backendState={backendState}
+        backendStatus={backendStatus}
+        busy={busy}
+        lastRunCredits={lastRunCredits}
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        onStartNewGame={handleStartNewGame}
+        onResumeGame={handleResumeGame}
+        onSaveToSlot={handleSaveToSlot}
+        onLoadSlot={handleLoadSlot}
+        onDeleteSlot={handleDeleteSlot}
+        onPurchaseUpgrade={handlePurchaseUpgrade}
+        onSelectJet={handleSelectJet}
+        onUpdatePilotName={handleUpdatePilotName}
+        onReviveWithCredits={handleReviveWithCredits}
+        onReturnToTitle={handleReturnToTitle}
+      />
+
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 pointer-events-none px-4 py-2 bg-[#040d17] border border-emerald-400/70 text-emerald-200 font-mono text-xs font-bold tracking-[0.16em] uppercase shadow-[0_0_24px_rgba(0,255,136,0.28)]">
+          {toast}
+        </div>
+      )}
+    </div>
+  );
+}

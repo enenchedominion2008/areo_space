@@ -1,0 +1,6 @@
+{
+  "name": "Vanguard Vector",
+  "description": "3D neon cyber-trench space shooter with Three.js WebGL combat and Python SQLite save-state persistence.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
