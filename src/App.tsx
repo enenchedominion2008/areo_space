@@ -72,6 +72,9 @@ export default function App() {
   const [lastRunCredits, setLastRunCredits] = useState<number | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'none' | 'slots' | 'hangar' | 'leaderboard'>('none');
+  const [showIntroVideo, setShowIntroVideo] = useState(true);
+
+  const handleSkipIntro = useCallback(() => setShowIntroVideo(false), []);
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -322,6 +325,13 @@ export default function App() {
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      if (showIntroVideo) {
+        if (e.code === 'Escape' || e.code === 'Space' || e.code === 'Enter') {
+          e.preventDefault();
+          handleSkipIntro();
+        }
+        return;
+      }
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       if (e.code === 'Escape' || e.code === 'KeyP') {
         if (activeTab !== 'none') {
@@ -342,11 +352,33 @@ export default function App() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [activeTab, handleStartNewGame]);
+  }, [activeTab, handleStartNewGame, handleSkipIntro, showIntroVideo]);
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-[#02060d] touch-none">
       <div ref={canvasMountRef} className="fixed inset-0 w-full h-full touch-none" />
+
+      {showIntroVideo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black">
+          <video
+            className="h-full w-full object-contain"
+            src="/assets/aistudio/Spaceship_firing_lasers_in_battle_2310d8bf_ad30afee.mp4"
+            autoPlay
+            muted
+            playsInline
+            onEnded={handleSkipIntro}
+            onError={handleSkipIntro}
+            aria-label="Game introduction"
+          />
+          <button
+            type="button"
+            onClick={handleSkipIntro}
+            className="absolute right-5 top-5 rounded-sm border border-emerald-300/70 bg-[#04111ddd] px-5 py-2.5 font-mono text-sm font-bold uppercase tracking-[0.18em] text-emerald-100 shadow-[0_0_24px_rgba(0,255,136,0.28)] transition-colors hover:bg-emerald-500/30 focus:outline-none focus:ring-2 focus:ring-emerald-300"
+          >
+            Skip intro <span className="ml-2 text-emerald-300/70">Esc</span>
+          </button>
+        </div>
+      )}
 
       {hud.phase === 'playing' && (
         <GameHud
