@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: areo-space
+    name: cyber-space
     runtime: docker
     plan: free
     dockerfilePath: ./Dockerfile
