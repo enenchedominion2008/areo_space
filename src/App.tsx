@@ -83,7 +83,7 @@ export default function App() {
   const [lastRunCredits, setLastRunCredits] = useState<number | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'none' | 'slots' | 'hangar' | 'leaderboard'>('none');
-  const [showIntroVideo, setShowIntroVideo] = useState(true);
+  const [showIntroVideo, setShowIntroVideo] = useState(() => !detectTouchDevice());
 
   const handleSkipIntro = useCallback(() => setShowIntroVideo(false), []);
 

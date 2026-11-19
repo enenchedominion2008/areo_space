@@ -360,8 +360,8 @@ export const GameModals: React.FC<GameModalsProps> = ({
   // Title Screen
   if (phase === 'title') {
     return (
-      <div className="fixed inset-0 z-20 flex flex-col justify-between p-5 sm:p-10 pointer-events-none font-mono">
-        <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="title-screen fixed inset-0 z-20 flex flex-col justify-between overflow-y-auto p-5 sm:p-10 pointer-events-none font-mono">
+        <div className="title-screen__header flex flex-wrap items-center justify-between gap-2">
           <div className="bg-[#040b14]/84 border border-emerald-400/40 px-3 py-1.5 rounded-sm text-[11px] sm:text-xs">
             <span className="text-slate-400">PILOT </span>
             <span className="text-white font-bold">{profile?.pilot_name || 'VANGUARD-01'}</span>
@@ -404,10 +404,10 @@ export const GameModals: React.FC<GameModalsProps> = ({
           </div>
         </div>
 
-        <div className="max-w-xl my-auto pointer-events-auto">
+        <div className="title-screen__main max-w-xl my-auto pointer-events-auto">
           <svg
             viewBox="0 0 560 112"
-            className="w-full max-w-lg h-auto drop-shadow-[0_0_22px_rgba(0,255,136,0.35)]"
+            className="title-screen__logo w-full max-w-lg h-auto drop-shadow-[0_0_22px_rgba(0,255,136,0.35)]"
             aria-label="Vanguard Vector"
           >
             <defs>
@@ -442,12 +442,12 @@ export const GameModals: React.FC<GameModalsProps> = ({
             </text>
           </svg>
 
-          <p className="mt-2 text-xs sm:text-sm text-slate-300/90 max-w-md leading-relaxed">
+          <p className="title-screen__description mt-2 text-xs sm:text-sm text-slate-300/90 max-w-md leading-relaxed">
             20 levels across 5 deep-space celestial arenas with an end-of-level boss fight in every stage.
             Auto-firing weapons, fragment upgrades, enemy bombs, and 8 cyberpunk hangar jets with special powers.
           </p>
 
-          <div className="mt-5 flex flex-wrap items-center gap-3">
+          <div className="title-screen__primary-actions mt-5 flex flex-wrap items-center gap-3">
             <button
               type="button"
               onClick={() => onStartNewGame(1)}
@@ -469,7 +469,7 @@ export const GameModals: React.FC<GameModalsProps> = ({
             )}
           </div>
 
-          <div className="mt-4 flex flex-wrap items-center gap-2">
+          <div className="title-screen__secondary-actions mt-4 flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => setActiveTab('hangar')}
@@ -497,7 +497,7 @@ export const GameModals: React.FC<GameModalsProps> = ({
           </div>
         </div>
 
-        <div className="text-center text-[10px] sm:text-xs tracking-[0.15em] text-emerald-300/80 uppercase">
+        <div className="title-screen__footer text-center text-[10px] sm:text-xs tracking-[0.15em] text-emerald-300/80 uppercase">
           WASD / Touch Joystick Move · Auto-Fire Active · Q / Power Button Special · Shift Roll · Esc Pause
         </div>
 

@@ -16,3 +16,47 @@ body,
     display: flex;
   }
 }
+
+@media (orientation: landscape) and (max-height: 500px) and (pointer: coarse) {
+  .title-screen {
+    justify-content: flex-start;
+    gap: 8px;
+    padding: max(6px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
+      max(6px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  }
+
+  .title-screen__header,
+  .title-screen__main {
+    flex: 0 0 auto;
+  }
+
+  .title-screen__main {
+    max-width: min(100%, 760px);
+    margin: 0 auto;
+  }
+
+  .title-screen__logo {
+    max-width: 260px;
+  }
+
+  .title-screen__description,
+  .title-screen__footer {
+    display: none;
+  }
+
+  .title-screen__primary-actions,
+  .title-screen__secondary-actions {
+    gap: 6px;
+    margin-top: 8px;
+  }
+
+  .title-screen__primary-actions button {
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+
+  .title-screen__secondary-actions button {
+    padding: 6px 9px;
+    font-size: 10px;
+  }
+}
