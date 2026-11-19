@@ -1,6 +1,8 @@
 {
   "name": "Vanguard Vector",
-  "description": "3D neon cyber-trench space shooter with Three.js WebGL combat and Python SQLite save-state persistence.",
+  "description": "you are lost in space and your only way out is to fight the forces coming your way dont hold back",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }
