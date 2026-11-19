@@ -14,7 +14,10 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "game_saves.db")
+DB_PATH = os.environ.get(
+    "DB_PATH",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "game_saves.db"),
+)
 DB_LOCK = threading.Lock()
 VALID_JETS = (
     "vanguard",
@@ -46,6 +49,8 @@ def ensure_column(cur: sqlite3.Cursor, table: str, column: str, definition: str)
 
 
 def init_db() -> None:
+    db_directory = os.path.dirname(os.path.abspath(DB_PATH))
+    os.makedirs(db_directory, exist_ok=True)
     with DB_LOCK:
         conn = get_conn()
         try:
