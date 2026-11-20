@@ -49,6 +49,9 @@ const AFTERBURNER_COOLDOWN = 14.0;
 const MISSILE_COOLDOWN = 9.0;
 const SHIELD_PULSE_DURATION = 1.5;
 const SHIELD_PULSE_COOLDOWN = 12.0;
+const BOSS_CHASE_DURATION = 11.5;
+const BOSS_CHASE_ENTER_DURATION = 1.1;
+const BOSS_CHASE_EXIT_DURATION = 1.0;
 
 interface PlayerBolt {
   active: boolean;
@@ -286,6 +289,20 @@ export class SpaceShooterEngine {
   private cameraShake = 0;
   private bannerText: string | null = null;
   private bannerTimer = 0;
+
+  // Boss Chase Phase state
+  private bossChasePhase: 'none' | 'entering' | 'active' | 'exiting' = 'none';
+  private bossChaseTimer = 0;
+  private bossChaseBlend = 0;
+  private bossChaseCompleted = false;
+  private chaseBarrageTimer = 0;
+  private chaseTelegraphTimer = 0;
+  private chaseTelegraphDuration = 0.55;
+  private chaseSubWaveRemaining = 0;
+  private chaseSubWaveInterval = 0;
+  private chasePatternIndex = 0;
+  private chaseGapCenter = 0;
+  private chaseSweepSign = 1;
 
   // Inputs (held vs buffered + mobile virtual joystick)
   private heldKeys = new Set<string>();
@@ -601,8 +618,9 @@ export class SpaceShooterEngine {
     const rect = this.renderer.domElement.getBoundingClientRect();
     const nx = ((e.clientX - rect.left) / rect.width) * 2 - 1;
     const ny = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
+    const steerXSign = this.bossChaseBlend > 0.5 ? -1 : 1;
     this.pointerTarget = {
-      x: THREE.MathUtils.clamp(nx * this.boundsX, -this.boundsX, this.boundsX),
+      x: THREE.MathUtils.clamp(nx * steerXSign * this.boundsX, -this.boundsX, this.boundsX),
       y: THREE.MathUtils.clamp(ny * 5.2 + 0.3, this.minY, this.maxY),
     };
   }
@@ -734,6 +752,7 @@ export class SpaceShooterEngine {
     this.shieldPulseActiveTimer = 0;
     this.invulnTimer = 1.2;
     this.fragmentDropTimer = 7.0;
+    this.resetBossChaseState(true);
     this.phase = 'playing';
 
     this.setupLevel(THREE.MathUtils.clamp(startLevel, 1, 20));
@@ -781,6 +800,7 @@ export class SpaceShooterEngine {
     this.shieldPulseCooldown = 0;
     this.shieldPulseActiveTimer = 0;
     this.invulnTimer = 1.5;
+    this.resetBossChaseState(true);
     this.phase = 'playing';
 
     this.setupLevel(this.wave);
@@ -851,6 +871,7 @@ export class SpaceShooterEngine {
 
   public returnToTitle(): void {
     this.clearEntities();
+    this.resetBossChaseState(true);
     this.phase = 'title';
     this.sectorMode = 'emerald_trench';
     this.environment.setTheme('emerald_trench');
@@ -878,6 +899,22 @@ export class SpaceShooterEngine {
       disposeObjectTree(h.visuals.group);
     }
     this.areaHazards = [];
+
+    if (this.bossChasePhase !== 'none') {
+      this.resetBossChaseState(false);
+      for (const e of this.enemies) {
+        if (e.kind === 'dreadnought') {
+          e.z = e.targetZ;
+          e.x = e.baseX;
+          e.y = e.baseY;
+          e.rig.group.rotation.y = 0;
+          e.rig.telegraphHalo.visible = false;
+          e.pendingAttack = 'none';
+          e.fireTimer = 1.2;
+          e.bombTimer = 2.6;
+        }
+      }
+    }
 
     this.health = this.maxHealth;
     this.shield = this.maxShield;
@@ -930,6 +967,23 @@ export class SpaceShooterEngine {
     this.empRingTimer = 0;
     this.shieldPulseRingMesh.visible = false;
     this.shieldPulseRingTimer = 0;
+    this.resetBossChaseState(true);
+  }
+
+  private resetBossChaseState(resetCompleted = false): void {
+    this.bossChasePhase = 'none';
+    this.bossChaseTimer = 0;
+    this.bossChaseBlend = 0;
+    this.chaseBarrageTimer = 0;
+    this.chaseTelegraphTimer = 0;
+    this.chaseSubWaveRemaining = 0;
+    this.chaseSubWaveInterval = 0;
+    this.chasePatternIndex = 0;
+    this.chaseGapCenter = 0;
+    this.chaseSweepSign = 1;
+    if (resetCompleted) {
+      this.bossChaseCompleted = false;
+    }
   }
 
   // =========================================================================
@@ -945,6 +999,7 @@ export class SpaceShooterEngine {
     this.waveSpawnQueue = [];
     this.bossPending = true;
     this.bossSpawned = false;
+    this.resetBossChaseState(true);
 
     for (let i = 0; i < cfg.squadCount; i++) {
       if (cfg.level >= 3 && i % 5 === 4) {
@@ -1186,8 +1241,10 @@ export class SpaceShooterEngine {
     if (this.missileBufferTimer > 0) this.missileBufferTimer -= dt;
     if (this.shieldPulseBufferTimer > 0) this.shieldPulseBufferTimer -= dt;
 
-    // Shogun Orbital Matrix auto-turret drones
-    if (this.jetId === 'shogun_mk9' && this.specialActiveTimer > 0) {
+    const chaseActive = this.bossChasePhase !== 'none';
+
+    // Shogun Orbital Matrix auto-turret drones (locked during boss chase phase)
+    if (this.jetId === 'shogun_mk9' && this.specialActiveTimer > 0 && !chaseActive) {
       this.shogunDroneTimer -= dt;
       if (this.shogunDroneTimer <= 0) {
         this.shogunDroneTimer = 0.28;
@@ -1223,10 +1280,12 @@ export class SpaceShooterEngine {
     }
 
     // 1. Player Movement (Keyboard + Touch Joystick + Optional Pointer Drag)
-    let moveX = this.touchSteerX;
+    // Invert horizontal steer when front-facing camera is active so Left/Right stay screen-consistent.
+    const steerXSign = this.bossChaseBlend > 0.5 ? -1 : 1;
+    let moveX = this.touchSteerX * steerXSign;
     let moveY = this.touchSteerY;
-    if (this.heldKeys.has('KeyA') || this.heldKeys.has('ArrowLeft')) moveX -= 1;
-    if (this.heldKeys.has('KeyD') || this.heldKeys.has('ArrowRight')) moveX += 1;
+    if (this.heldKeys.has('KeyA') || this.heldKeys.has('ArrowLeft')) moveX -= steerXSign;
+    if (this.heldKeys.has('KeyD') || this.heldKeys.has('ArrowRight')) moveX += steerXSign;
     if (this.heldKeys.has('KeyW') || this.heldKeys.has('ArrowUp')) moveY += 1;
     if (this.heldKeys.has('KeyS') || this.heldKeys.has('ArrowDown')) moveY -= 1;
 
@@ -1279,7 +1338,7 @@ export class SpaceShooterEngine {
     this.shipX = THREE.MathUtils.clamp(this.shipX + this.shipVx * dt, -this.boundsX, this.boundsX);
     this.shipY = THREE.MathUtils.clamp(this.shipY + this.shipVy * dt, this.minY, this.maxY);
 
-    const targetShipZ = this.afterburnerActiveTimer > 0 ? -13.5 : 0;
+    const targetShipZ = this.afterburnerActiveTimer > 0 && !chaseActive ? -13.5 : 0;
     this.shipZ = THREE.MathUtils.damp(this.shipZ, targetShipZ, this.afterburnerActiveTimer > 0 ? 6.5 : 5.0, dt);
 
     this.playerRig.group.position.set(this.shipX, this.shipY, this.shipZ);
@@ -1374,9 +1433,9 @@ export class SpaceShooterEngine {
       }
     }
 
-    // 2. ALWAYS AUTO-SHOOT Weapons (based on collected Fragment pattern & bullet level)
+    // 2. ALWAYS AUTO-SHOOT Weapons (disabled during cinematic boss chase phase)
     this.fireCooldown = Math.max(0, this.fireCooldown - dt);
-    if (this.fireCooldown <= 0) {
+    if (!chaseActive && this.fireCooldown <= 0) {
       this.firePlayerWeapons();
     }
 
@@ -1444,7 +1503,8 @@ export class SpaceShooterEngine {
       );
     }
 
-    // 4. Update Enemies, Bombs, Projectiles, Area Hazards & Fragments
+    // 4. Advance Boss Chase Phase & Update Enemies, Bombs, Projectiles, Area Hazards & Fragments
+    this.updateBossChasePhase(dt);
     this.updateEnemies(enemyDt, dt);
     this.updateEnemyBombs(enemyDt);
     this.updateAreaHazards(enemyDt);
@@ -1452,21 +1512,34 @@ export class SpaceShooterEngine {
     this.updateEnemyBolts(enemyDt);
     this.updateFragments(dt);
 
-    // 5. Smooth Chase Camera
+    // 5. Smooth Chase / Orbital Front-Facing Camera
     this.cameraShake = THREE.MathUtils.damp(this.cameraShake, 0, 10, dt);
     const shakeX = (Math.random() - 0.5) * this.cameraShake;
     const shakeY = (Math.random() - 0.5) * this.cameraShake;
 
-    const targetFov = isAfterburnerNow ? 75 : this.barrelRollTimer > 0 ? 70 : isOverdrive ? 67 : 62;
+    const b = this.bossChaseBlend;
+    const targetFov = Math.max(
+      isAfterburnerNow ? 75 : this.barrelRollTimer > 0 ? 70 : isOverdrive ? 67 : 62,
+      62 + b * 6
+    );
     if (Math.abs(this.camera.fov - targetFov) > 0.05) {
       this.camera.fov = THREE.MathUtils.damp(this.camera.fov, targetFov, 7, dt);
       this.camera.updateProjectionMatrix();
     }
 
-    this.camera.position.x = THREE.MathUtils.damp(this.camera.position.x, this.shipX * 0.62, 6, dt) + shakeX;
-    this.camera.position.y = THREE.MathUtils.damp(this.camera.position.y, this.shipY * 0.45 + 3.1, 6, dt) + shakeY;
-    this.camera.position.z = this.shipZ + 10.6;
-    this.camera.lookAt(this.shipX * 0.42, this.shipY * 0.35 - 0.3, this.shipZ - 24);
+    const theta = b * Math.PI;
+    const orbitZ = THREE.MathUtils.lerp(10.6, 14.2, b);
+    const targetCamX = this.shipX * THREE.MathUtils.lerp(0.62, 0.48, b) + Math.sin(theta) * 13.5;
+    const targetCamY = this.shipY * 0.45 + THREE.MathUtils.lerp(3.1, 2.5, b) + Math.sin(theta) * 1.5;
+    const targetCamZ = this.shipZ + Math.cos(theta) * orbitZ;
+    const lookX = this.shipX * THREE.MathUtils.lerp(0.42, 0.55, b);
+    const lookY = this.shipY * 0.35 + THREE.MathUtils.lerp(-0.3, 0.25, b);
+    const lookZ = this.shipZ - Math.cos(theta) * 24;
+
+    this.camera.position.x = THREE.MathUtils.damp(this.camera.position.x, targetCamX, 6.5, dt) + shakeX;
+    this.camera.position.y = THREE.MathUtils.damp(this.camera.position.y, targetCamY, 6.5, dt) + shakeY;
+    this.camera.position.z = targetCamZ;
+    this.camera.lookAt(lookX, lookY, lookZ);
   }
 
   private activateAfterburner(): void {
@@ -1832,6 +1905,66 @@ export class SpaceShooterEngine {
       e.age += dt;
       if (e.ramCooldown > 0) e.ramCooldown = Math.max(0, e.ramCooldown - realDt);
 
+      if (e.kind === 'dreadnought' && this.bossChasePhase !== 'none') {
+        // Boss chase pursuit choreography & barrage scheduler
+        if (this.bossChasePhase === 'entering') {
+          const progress = 1 - Math.max(0, this.bossChaseTimer) / BOSS_CHASE_ENTER_DURATION;
+          const arcX = -Math.sin(progress * Math.PI) * 5.8;
+          const arcY = 1.35 + Math.sin(progress * Math.PI) * 5.2;
+          e.x = THREE.MathUtils.damp(e.x, arcX, 6.5, realDt);
+          e.y = THREE.MathUtils.damp(e.y, arcY, 6.5, realDt);
+          e.z = THREE.MathUtils.damp(e.z, this.shipZ + 30.5, 4.8, realDt);
+          e.rig.group.rotation.y = progress * Math.PI;
+          e.rig.telegraphHalo.visible = false;
+        } else if (this.bossChasePhase === 'active') {
+          const targetX = THREE.MathUtils.clamp(Math.sin(e.age * 1.15) * 4.8, -this.boundsX * 0.65, this.boundsX * 0.65);
+          const targetY = THREE.MathUtils.clamp(1.1 + Math.cos(e.age * 0.9) * 1.15, -2.5, 4.5);
+          const prevX = e.x;
+          e.x = THREE.MathUtils.damp(e.x, targetX, 3.8, dt);
+          e.y = THREE.MathUtils.damp(e.y, targetY, 3.8, dt);
+          e.z = THREE.MathUtils.damp(e.z, this.shipZ + 30.5, 6.0, realDt);
+          e.rig.group.rotation.y = THREE.MathUtils.damp(e.rig.group.rotation.y, Math.PI, 8, realDt);
+          e.rig.group.rotation.z = THREE.MathUtils.clamp((prevX - e.x) * 0.25, -0.35, 0.35);
+          this.updateBossChaseBarrage(e, dt);
+        } else {
+          // 'exiting': break off backward into deep rear space then snap cleanly back ahead
+          const progress = 1 - Math.max(0, this.bossChaseTimer) / BOSS_CHASE_EXIT_DURATION;
+          if (progress < 0.5) {
+            e.z += 56 * realDt;
+            e.y += 4.5 * realDt;
+          } else {
+            if (e.z > 0) {
+              e.z = -90;
+              e.x = 0;
+              e.y = 4.5;
+              e.rig.group.rotation.y = 0;
+            }
+            e.x = THREE.MathUtils.damp(e.x, e.baseX, 4.5, realDt);
+            e.y = THREE.MathUtils.damp(e.y, e.baseY, 4.5, realDt);
+            e.z = THREE.MathUtils.damp(e.z, e.targetZ, 5.2, realDt);
+            e.rig.group.rotation.y = THREE.MathUtils.damp(e.rig.group.rotation.y, 0, 8, realDt);
+          }
+          e.rig.telegraphHalo.visible = false;
+        }
+
+        e.rig.group.position.set(e.x, e.y, e.z);
+        if (e.hitFlashTimer > 0) {
+          e.hitFlashTimer -= realDt;
+          const flashOn = e.hitFlashTimer > 0;
+          e.rig.hitMeshes.forEach((m, idx) => {
+            const mat = m.material as THREE.MeshStandardMaterial;
+            if (flashOn) {
+              mat.emissive.setHex(0xffffff);
+              mat.emissiveIntensity = 3.2;
+            } else {
+              mat.emissive.copy(e.rig.baseEmissives[idx]);
+              mat.emissiveIntensity = e.rig.baseEmissiveIntensities[idx];
+            }
+          });
+        }
+        continue;
+      }
+
       if (afterburnerActive) {
         // Sweep enemies rapidly through the player's super-speed corridor for exciting ramming passes
         const passSpeed = e.kind === 'dreadnought' ? 20 : 31;
@@ -1860,6 +1993,7 @@ export class SpaceShooterEngine {
       e.y = THREE.MathUtils.damp(e.y, targetY, 3.8, dt);
 
       e.rig.group.position.set(e.x, e.y, e.z);
+      e.rig.group.rotation.y = THREE.MathUtils.damp(e.rig.group.rotation.y, 0, 8, realDt);
       e.rig.group.rotation.z = THREE.MathUtils.clamp((prevX - e.x) * 0.38, -0.45, 0.45);
 
       if (e.hitFlashTimer > 0) {
@@ -1900,9 +2034,13 @@ export class SpaceShooterEngine {
         }
       }
 
-      // Boss HP phase transition notifications
+      // Boss HP phase transition notifications & chase phase trigger at 50% HP
       if (e.kind === 'dreadnought') {
         const hpRatio = e.hp / Math.max(1, e.maxHp);
+        if (!this.bossChaseCompleted && this.bossChasePhase === 'none' && e.hp > 0 && hpRatio <= 0.5) {
+          this.beginBossChase(e);
+          continue;
+        }
         if (hpRatio <= 0.3 && e.bossPhaseNotified < 3) {
           e.bossPhaseNotified = 3;
           this.showBanner('BOSS FINAL PHASE · OVERDRIVE', 2.0);
@@ -1991,6 +2129,239 @@ export class SpaceShooterEngine {
       this.reticleGroup.rotation.z += dt * 1.8;
     } else {
       this.reticleGroup.visible = false;
+    }
+  }
+
+  private beginBossChase(boss: EnemyActor): void {
+    this.bossChaseCompleted = true;
+    this.bossChasePhase = 'entering';
+    this.bossChaseTimer = BOSS_CHASE_ENTER_DURATION;
+    this.chaseBarrageTimer = 0.25;
+    this.chaseTelegraphTimer = 0;
+    this.chaseSubWaveRemaining = 0;
+    this.chaseSubWaveInterval = 0;
+    this.chasePatternIndex = 0;
+    this.chaseGapCenter = 0;
+    this.chaseSweepSign = 1;
+
+    boss.pendingAttack = 'none';
+    boss.telegraphTimer = 0;
+    boss.burstRemaining = 0;
+    boss.rig.telegraphHalo.visible = false;
+
+    for (const b of this.enemyBolts) {
+      if (b.active) {
+        b.active = false;
+        b.mesh.visible = false;
+      }
+    }
+    for (const bomb of this.enemyBombs) {
+      this.scene.remove(bomb.mesh);
+      disposeObjectTree(bomb.mesh);
+    }
+    this.enemyBombs = [];
+    for (const h of this.areaHazards) {
+      this.scene.remove(h.visuals.group);
+      disposeObjectTree(h.visuals.group);
+    }
+    this.areaHazards = [];
+    for (const pb of this.playerBolts) {
+      if (pb.active && pb.homing) {
+        pb.homing = false;
+        pb.targetEnemyId = null;
+      }
+    }
+
+    this.invulnTimer = Math.max(this.invulnTimer, BOSS_CHASE_ENTER_DURATION + 0.45);
+    this.cameraShake = Math.max(this.cameraShake, 0.35);
+    this.audio.playEnemyWarning();
+    this.showBanner('BOSS PURSUIT · EVADE BARRAGE!', 2.5);
+  }
+
+  private updateBossChasePhase(dt: number): void {
+    const activeBoss = this.enemies.find((e) => e.kind === 'dreadnought') ?? null;
+    if (this.bossChasePhase !== 'none' && !activeBoss) {
+      this.resetBossChaseState(false);
+    }
+
+    if (this.bossChasePhase === 'entering') {
+      this.bossChaseTimer -= dt;
+      if (this.bossChaseTimer <= 0) {
+        this.bossChasePhase = 'active';
+        this.bossChaseTimer = BOSS_CHASE_DURATION;
+        this.chaseBarrageTimer = 0.2;
+        this.chaseTelegraphTimer = 0;
+        this.chaseSubWaveRemaining = 0;
+        this.showBanner('WEAPONS LOCKED · DODGE THE BARRAGE!', 2.0);
+      }
+    } else if (this.bossChasePhase === 'active') {
+      this.bossChaseTimer -= dt;
+      if (this.bossChaseTimer <= 0) {
+        for (const b of this.enemyBolts) {
+          if (b.active) {
+            b.active = false;
+            b.mesh.visible = false;
+          }
+        }
+        if (activeBoss) {
+          activeBoss.rig.telegraphHalo.visible = false;
+          activeBoss.pendingAttack = 'none';
+          activeBoss.burstRemaining = 0;
+          activeBoss.fireTimer = 1.4;
+          activeBoss.bombTimer = 2.6;
+        }
+        this.invulnTimer = Math.max(this.invulnTimer, 1.35);
+        this.bossChasePhase = 'exiting';
+        this.bossChaseTimer = BOSS_CHASE_EXIT_DURATION;
+        this.showBanner('BARRAGE SURVIVED · RESUMING ASSAULT!', 2.2);
+      }
+    } else if (this.bossChasePhase === 'exiting') {
+      this.bossChaseTimer -= dt;
+      if (this.bossChaseTimer <= 0) {
+        this.bossChasePhase = 'none';
+        this.bossChaseTimer = 0;
+        this.fireCooldown = 0.08;
+      }
+    }
+
+    const targetBlend =
+      this.bossChasePhase === 'entering' || this.bossChasePhase === 'active' ? 1 : 0;
+    this.bossChaseBlend = THREE.MathUtils.damp(this.bossChaseBlend, targetBlend, 4.4, dt);
+    if (this.bossChasePhase === 'none' && this.bossChaseBlend < 0.002) {
+      this.bossChaseBlend = 0;
+    }
+  }
+
+  private updateBossChaseBarrage(boss: EnemyActor, dt: number): void {
+    const coreMat = boss.rig.coreMesh.material as THREE.MeshStandardMaterial;
+
+    if (this.chaseSubWaveRemaining > 0) {
+      boss.rig.telegraphHalo.visible = false;
+      coreMat.emissiveIntensity = 3.6;
+      this.chaseSubWaveInterval -= dt;
+      if (this.chaseSubWaveInterval <= 0) {
+        this.fireBossChaseSalvo(boss);
+        this.chaseSubWaveRemaining--;
+        this.chaseSubWaveInterval = this.chasePatternIndex % 3 === 1 ? 0.15 : 0.23;
+        if (this.chaseSubWaveRemaining <= 0) {
+          this.chasePatternIndex++;
+          this.chaseSweepSign *= -1;
+          this.chaseBarrageTimer = 0.42;
+        }
+      }
+      return;
+    }
+
+    if (this.chaseTelegraphTimer > 0) {
+      this.chaseTelegraphTimer -= dt;
+      const progress = 1 - Math.max(0, this.chaseTelegraphTimer) / Math.max(0.01, this.chaseTelegraphDuration);
+      const halo = boss.rig.telegraphHalo;
+      const haloMat = halo.material as THREE.MeshBasicMaterial;
+      halo.visible = true;
+      haloMat.color.setHex(0xff3b30);
+      haloMat.opacity = 0.45 + progress * 0.55;
+      halo.scale.setScalar(1.8 - progress * 1.0);
+      halo.rotation.z += dt * 9;
+      coreMat.emissiveIntensity = 5.2 + Math.sin(boss.age * 40) * 1.6;
+
+      if (this.chaseTelegraphTimer <= 0) {
+        halo.visible = false;
+        coreMat.emissiveIntensity = 3.2;
+        const pattern = this.chasePatternIndex % 3;
+        this.chaseSubWaveRemaining = pattern === 1 ? 5 : 3;
+        this.chaseSubWaveInterval = 0;
+      }
+      return;
+    }
+
+    boss.rig.telegraphHalo.visible = false;
+    coreMat.emissiveIntensity = 2.8;
+    this.chaseBarrageTimer -= dt;
+    if (this.chaseBarrageTimer <= 0) {
+      const gapChoices = [-6.8, 0, 6.8];
+      this.chaseGapCenter = gapChoices[this.chasePatternIndex % gapChoices.length];
+      this.chaseTelegraphDuration = 0.54;
+      this.chaseTelegraphTimer = this.chaseTelegraphDuration;
+      this.audio.playEnemyWarning();
+    }
+  }
+
+  private fireBossChaseSalvo(boss: EnemyActor): void {
+    const pattern = this.chasePatternIndex % 3;
+    const waveDmg = Math.floor((this.wave - 1) * 0.85);
+    const damage = 30 + waveDmg;
+    const boltSpeed = 40 + this.wave * 0.45;
+    const spawnZ = boss.z - 2.6; // Behind player (~+27.9), traveling -Z toward player
+
+    if (pattern === 0) {
+      // Curtain wall with a wide open dodge lane centered at chaseGapCenter
+      const volleyIdx = 3 - this.chaseSubWaveRemaining;
+      const rowY = THREE.MathUtils.clamp(
+        this.shipY + (volleyIdx === 1 ? 1.8 : volleyIdx === 2 ? -1.6 : 0),
+        this.minY + 0.8,
+        this.maxY - 0.8
+      );
+      for (let tx = -10.4; tx <= 10.5; tx += 2.6) {
+        if (Math.abs(tx - this.chaseGapCenter) < 2.65) continue;
+        _v1.set(tx - boss.x, rowY - boss.y, this.shipZ - spawnZ).normalize();
+        this.spawnEnemyBolt(
+          boss.x,
+          boss.y,
+          spawnZ,
+          _v1.x * boltSpeed,
+          _v1.y * boltSpeed,
+          _v1.z * boltSpeed,
+          damage,
+          'spread',
+          1.4,
+          true
+        );
+      }
+    } else if (pattern === 1) {
+      // Sweeper column moving smoothly across the trench, leaving the opposite half open
+      const stepIdx = 5 - this.chaseSubWaveRemaining;
+      const frac = stepIdx / 4;
+      const sweepX = this.chaseSweepSign * (-9.6 + frac * 19.2);
+      for (let r = -1; r <= 1; r++) {
+        const ty = THREE.MathUtils.clamp(this.shipY + r * 2.2, this.minY + 0.5, this.maxY - 0.5);
+        _v1.set(sweepX - boss.x, ty - boss.y, this.shipZ - spawnZ).normalize();
+        this.spawnEnemyBolt(
+          boss.x,
+          boss.y,
+          spawnZ,
+          _v1.x * boltSpeed,
+          _v1.y * boltSpeed,
+          _v1.z * boltSpeed,
+          damage,
+          'aimed',
+          1.35,
+          true
+        );
+      }
+    } else {
+      // Ring crossfire leaving a wide open core/outer dodge pocket
+      const volleyIdx = 3 - this.chaseSubWaveRemaining;
+      const ringRadius = volleyIdx % 2 === 0 ? 4.6 : 6.4;
+      const count = 6;
+      const angleOffset = volleyIdx * 0.4;
+      for (let k = 0; k < count; k++) {
+        const a = (k / count) * Math.PI * 2 + angleOffset;
+        const tx = THREE.MathUtils.clamp(this.shipX + Math.cos(a) * ringRadius, -this.boundsX, this.boundsX);
+        const ty = THREE.MathUtils.clamp(this.shipY + Math.sin(a) * (ringRadius * 0.65), this.minY, this.maxY);
+        _v1.set(tx - boss.x, ty - boss.y, this.shipZ - spawnZ).normalize();
+        this.spawnEnemyBolt(
+          boss.x,
+          boss.y,
+          spawnZ,
+          _v1.x * boltSpeed,
+          _v1.y * boltSpeed,
+          _v1.z * boltSpeed,
+          damage,
+          k % 2 === 0 ? 'spread' : 'aimed',
+          1.4,
+          true
+        );
+      }
     }
   }
 
@@ -2416,11 +2787,15 @@ export class SpaceShooterEngine {
       if (b.homing && this.enemies.length > 0) {
         let target: EnemyActor | null = null;
         if (b.targetEnemyId !== null) {
-          target = this.enemies.find((e) => e.id === b.targetEnemyId) ?? null;
+          const candidate = this.enemies.find((e) => e.id === b.targetEnemyId) ?? null;
+          if (candidate && !(this.bossChasePhase !== 'none' && candidate.kind === 'dreadnought')) {
+            target = candidate;
+          }
         }
         if (!target) {
           let bestD = Infinity;
           for (const e of this.enemies) {
+            if (this.bossChasePhase !== 'none' && e.kind === 'dreadnought') continue;
             const d = (e.x - b.x) ** 2 + (e.y - b.y) ** 2 + (e.z - b.z) ** 2;
             if (d < bestD && e.z < b.z + 6) {
               bestD = d;
@@ -2532,6 +2907,10 @@ export class SpaceShooterEngine {
   private damageEnemy(index: number, damage: number, hitX: number, hitY: number, hitZ: number): void {
     const e = this.enemies[index];
     if (!e) return;
+    if (this.bossChasePhase !== 'none' && e.kind === 'dreadnought') {
+      this.spawnExplosion(hitX, hitY, hitZ, 3, 0x38bdf8, 6);
+      return;
+    }
     e.hp -= damage;
     e.hitFlashTimer = 0.075;
     this.spawnExplosion(hitX, hitY, hitZ, 4, 0x4ade80, 7);
@@ -2539,6 +2918,10 @@ export class SpaceShooterEngine {
     if (e.hp > 0) {
       this.audio.playHitConfirm();
       return;
+    }
+
+    if (e.kind === 'dreadnought') {
+      this.resetBossChaseState(false);
     }
 
     this.scene.remove(e.rig.group);
@@ -2602,13 +2985,15 @@ export class SpaceShooterEngine {
       b.z += b.vz * dt;
       b.mesh.position.set(b.x, b.y, b.z);
 
-      if (b.z > this.shipZ + 12 || Math.abs(b.x) > 22 || Math.abs(b.y) > 16) {
+      const outOfBoundsZ =
+        b.vz < 0 ? b.z < this.shipZ - 20 : b.z > this.shipZ + 12;
+      if (outOfBoundsZ || Math.abs(b.x) > 22 || Math.abs(b.y) > 16) {
         b.active = false;
         b.mesh.visible = false;
         continue;
       }
 
-      if (Math.abs(b.z - this.shipZ) < 1.8) {
+      if (b.age >= 0.14 && Math.abs(b.z - this.shipZ) < 1.8) {
         const dx = b.x - this.shipX;
         const dy = b.y - this.shipY;
         const hitRadius = b.pattern === 'tracking' ? 2.05 : 1.85;
@@ -2940,6 +3325,14 @@ export class SpaceShooterEngine {
       bannerText: this.bannerText,
       bossName,
       bossHpRatio,
+      bossChaseActive: this.bossChasePhase === 'entering' || this.bossChasePhase === 'active',
+      bossChaseTimeLeft:
+        this.bossChasePhase === 'active'
+          ? Math.max(0, this.bossChaseTimer)
+          : this.bossChasePhase === 'entering'
+          ? BOSS_CHASE_DURATION
+          : 0,
+      bossChaseDuration: BOSS_CHASE_DURATION,
       radarBlips,
     });
   }

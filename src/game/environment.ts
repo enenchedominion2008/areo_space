@@ -33,7 +33,7 @@ export class CyberTrenchEnvironment {
   private animatedBodies: Array<{ obj: THREE.Object3D; speedY: number; speedZ?: number }> = [];
 
   private readonly blockSpacing = 18;
-  private readonly blockPairs = 12;
+  private readonly blockPairs = 15;
 
   constructor(renderer: THREE.WebGLRenderer, scene: THREE.Scene) {
     this.scene = scene;
@@ -41,21 +41,21 @@ export class CyberTrenchEnvironment {
 
     const initialTheme = ARENA_THEMES[this.currentThemeId];
     this.floorTexture = this.createGridTexture(initialTheme.gridColor, initialTheme.floorBgColor, 4, 4);
-    this.floorTexture.repeat.set(16, 40);
+    this.floorTexture.repeat.set(16, 54);
     this.floorTexture.anisotropy = this.maxAniso;
 
     this.wallTexture = this.createGridTexture(initialTheme.gridColor, initialTheme.floorBgColor, 2, 2);
     this.wallTexture.repeat.set(2, 2);
     this.wallTexture.anisotropy = this.maxAniso;
 
-    const floorGeo = new THREE.PlaneGeometry(54, 240);
+    const floorGeo = new THREE.PlaneGeometry(54, 320);
     const floorMat = new THREE.MeshBasicMaterial({
       map: this.floorTexture,
       transparent: false,
     });
     this.floorMesh = new THREE.Mesh(floorGeo, floorMat);
     this.floorMesh.rotation.x = -Math.PI / 2;
-    this.floorMesh.position.set(0, -7.8, -95);
+    this.floorMesh.position.set(0, -7.8, -65);
     this.group.add(this.floorMesh);
 
     this.railMat = new THREE.MeshBasicMaterial({
@@ -64,8 +64,8 @@ export class CyberTrenchEnvironment {
       opacity: 0.55,
     });
     for (const xPos of [-13.5, 13.5]) {
-      const rail = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.14, 240), this.railMat);
-      rail.position.set(xPos, -7.68, -95);
+      const rail = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.14, 320), this.railMat);
+      rail.position.set(xPos, -7.68, -65);
       this.group.add(rail);
     }
 
@@ -84,7 +84,7 @@ export class CyberTrenchEnvironment {
     });
 
     for (let i = 0; i < this.blockPairs; i++) {
-      const z = 12 - i * this.blockSpacing;
+      const z = 66 - i * this.blockSpacing;
       const cluster = this.createCanyonPair(this.solidFillMat, this.edgeWireMat, i);
       cluster.position.z = z;
       this.group.add(cluster);
@@ -98,9 +98,9 @@ export class CyberTrenchEnvironment {
       wireframe: true,
     });
     const archGeo = new THREE.TorusGeometry(16.5, 0.25, 4, 20, Math.PI);
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < this.blockPairs; i++) {
       const arch = new THREE.Mesh(archGeo, this.tunnelArchMat);
-      arch.position.set(0, -1.5, 10 - i * 18);
+      arch.position.set(0, -1.5, 64 - i * this.blockSpacing);
       this.group.add(arch);
       this.tunnelArches.push(arch);
     }
@@ -131,7 +131,7 @@ export class CyberTrenchEnvironment {
       const radius = 20 + Math.random() * 82;
       starPos[i * 3] = Math.cos(angle) * radius;
       starPos[i * 3 + 1] = Math.sin(angle) * radius * 0.72 + 14;
-      starPos[i * 3 + 2] = -Math.random() * 210 + 10;
+      starPos[i * 3 + 2] = -Math.random() * 270 + 80;
 
       const tint = Math.random();
       if (tint < 0.6) color.setHex(0xe0f2fe);
@@ -583,7 +583,7 @@ export class CyberTrenchEnvironment {
 
     this.floorTexture.offset.y -= scrollSpeed * dt * 0.165;
 
-    const wrapLimit = 22;
+    const wrapLimit = 76;
     const totalDepth = this.blockPairs * this.blockSpacing;
     for (const block of this.canyonBlocks) {
       block.z += scrollSpeed * dt;
@@ -614,8 +614,8 @@ export class CyberTrenchEnvironment {
     const starSpeed = scrollSpeed * 0.72;
     for (let i = 0; i < posAttr.count; i++) {
       let z = posAttr.getZ(i) + starSpeed * dt;
-      if (z > 15) {
-        z -= 220;
+      if (z > 80) {
+        z -= 270;
       }
       posAttr.setZ(i, z);
     }

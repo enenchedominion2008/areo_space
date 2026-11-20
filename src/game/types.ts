@@ -359,6 +359,9 @@ export interface HudSnapshot {
   bannerText: string | null;
   bossName: string | null;
   bossHpRatio: number;
+  bossChaseActive: boolean;
+  bossChaseTimeLeft: number;
+  bossChaseDuration: number;
   radarBlips: RadarBlip[];
 }
 

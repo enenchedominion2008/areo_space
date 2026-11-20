@@ -57,6 +57,9 @@ const INITIAL_HUD: HudSnapshot = {
   bannerText: null,
   bossName: null,
   bossHpRatio: 0,
+  bossChaseActive: false,
+  bossChaseTimeLeft: 0,
+  bossChaseDuration: 11.5,
   radarBlips: [],
 };
 

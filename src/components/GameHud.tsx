@@ -184,6 +184,28 @@ export const GameHud: React.FC<GameHudProps> = ({
             </div>
           )}
 
+          {hud.bossChaseActive && (
+            <div className="w-full bg-[#1d060a]/90 border border-rose-400/85 px-2.5 py-1 rounded-sm">
+              <div className="flex justify-between text-[9px] sm:text-[10px] tracking-[0.14em] text-rose-200 font-bold uppercase mb-0.5">
+                <span>CHASE PHASE · EVADE · WEAPONS LOCKED</span>
+                <span className="tabular-nums text-amber-300 ml-2">
+                  {hud.bossChaseTimeLeft.toFixed(1)}s
+                </span>
+              </div>
+              <div className="h-1 w-full bg-black/75 overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-rose-500 to-amber-300 transition-[width] duration-75"
+                  style={{
+                    width: `${Math.max(
+                      0,
+                      Math.min(100, (hud.bossChaseTimeLeft / Math.max(0.1, hud.bossChaseDuration)) * 100)
+                    )}%`,
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
           {hud.bannerText && (
             <div className="bg-[#040b14]/88 border border-emerald-400/50 px-3 py-1 text-[10px] sm:text-xs font-bold tracking-[0.16em] text-emerald-200 uppercase text-center">
               {hud.bannerText}
@@ -352,7 +374,9 @@ export const GameHud: React.FC<GameHudProps> = ({
 
             <div className="mt-1 flex items-center justify-between text-[8px] sm:text-[9px] text-slate-400 uppercase tracking-wider">
               <span>{WEAPON_LABELS[hud.weaponPattern]} LV.{hud.laserLevel}</span>
-              <span className="text-emerald-400/75">AUTO</span>
+              <span className={hud.bossChaseActive ? 'text-rose-400 font-bold' : 'text-emerald-400/75'}>
+                {hud.bossChaseActive ? 'LOCKED' : 'AUTO'}
+              </span>
             </div>
           </div>
 
