@@ -51,6 +51,7 @@ const INITIAL_HUD: HudSnapshot = {
   sectorMode: 'emerald_trench',
   arenaName: 'EMERALD CYBER-TRENCH',
   dangerAlert: false,
+  hitFlash: 0,
   bannerText: null,
   bossName: null,
   bossHpRatio: 0,

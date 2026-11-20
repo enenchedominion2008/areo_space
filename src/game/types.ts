@@ -355,6 +355,7 @@ export interface HudSnapshot {
   sectorMode: ArenaThemeId;
   arenaName: string;
   dangerAlert: boolean;
+  hitFlash: number;
   bannerText: string | null;
   bossName: string | null;
   bossHpRatio: number;

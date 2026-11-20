@@ -77,6 +77,7 @@ interface EnemyBolt {
   vy: number;
   vz: number;
   damage: number;
+  isHeavy: boolean;
   pattern: EnemyBoltPattern;
   hp: number;
   age: number;
@@ -279,6 +280,8 @@ export class SpaceShooterEngine {
   private shogunDroneTimer = 0;
   private invulnTimer = 0;
   private playerHitFlash = 0;
+  private playerHitFlashMax = 0.28;
+  private lastHitHull = false;
   private cameraShake = 0;
   private bannerText: string | null = null;
   private bannerTimer = 0;
@@ -509,7 +512,8 @@ export class SpaceShooterEngine {
         vx: 0,
         vy: 0,
         vz: 0,
-        damage: 12,
+        damage: 16,
+        isHeavy: false,
         pattern: 'aimed',
         hp: 1,
         age: 0,
@@ -1283,7 +1287,13 @@ export class SpaceShooterEngine {
       : this.playerHitFlash > 0
       ? 0.42
       : 0;
-    shieldMat.color.setHex(shieldPulseActive ? 0x2dd4bf : jet.accentHex);
+    shieldMat.color.setHex(
+      shieldPulseActive
+        ? 0x2dd4bf
+        : this.playerHitFlash > 0 && this.shield <= 0
+        ? 0xef4444
+        : jet.accentHex
+    );
     shieldMat.opacity = THREE.MathUtils.damp(shieldMat.opacity, shieldTargetOpacity, 14, dt);
     this.playerRig.shieldBubble.rotation.y += dt * (shieldPulseActive ? 6.5 : 3.5);
 
@@ -2036,7 +2046,8 @@ export class SpaceShooterEngine {
     vz: number,
     damage: number,
     pattern: EnemyBoltPattern,
-    scale: number
+    scale: number,
+    isHeavy = false
   ): void {
     const bolt = this.enemyBolts.find((b) => !b.active);
     if (!bolt) return;
@@ -2048,6 +2059,7 @@ export class SpaceShooterEngine {
     bolt.vy = vy;
     bolt.vz = vz;
     bolt.damage = damage;
+    bolt.isHeavy = isHeavy;
     bolt.pattern = pattern;
     bolt.hp = pattern === 'tracking' ? 2 : 1;
     bolt.age = 0;
@@ -2068,7 +2080,12 @@ export class SpaceShooterEngine {
   }
 
   private fireAimedShot(e: EnemyActor): void {
-    const speed = 33 + this.wave * 0.95;
+    const speed = 34 + this.wave * 0.95;
+    const waveDmg = Math.floor((this.wave - 1) * 0.75);
+    const isBoss = e.kind === 'dreadnought';
+    const isGunship = e.kind === 'gunship';
+    const damage = (isBoss ? 28 : isGunship ? 22 : 17) + waveDmg;
+
     const shootFrom = (ox: number, oy: number, offsetTargetX = 0) => {
       const sx = e.x + ox;
       const sy = e.y + oy;
@@ -2081,9 +2098,10 @@ export class SpaceShooterEngine {
         _v1.x * speed,
         _v1.y * speed,
         _v1.z * speed,
-        e.kind === 'dreadnought' ? 15 : e.kind === 'gunship' ? 12 : 10,
+        damage,
         'aimed',
-        e.kind === 'dreadnought' ? 1.3 : 1.0
+        isBoss ? 1.35 : 1.05,
+        isBoss
       );
     };
 
@@ -2099,7 +2117,8 @@ export class SpaceShooterEngine {
   }
 
   private fireSpreadFan(e: EnemyActor): void {
-    const speed = 28 + this.wave * 0.8;
+    const speed = 28.5 + this.wave * 0.85;
+    const waveDmg = Math.floor((this.wave - 1) * 0.75);
     const isBoss = e.kind === 'dreadnought';
     const hpRatio = e.hp / Math.max(1, e.maxHp);
     const count = isBoss ? (hpRatio <= 0.3 ? 7 : 5) : 3;
@@ -2121,16 +2140,19 @@ export class SpaceShooterEngine {
         Math.sin(angle) * speed,
         _v1.y * speed,
         Math.cos(angle) * speed,
-        isBoss ? 14 : 11,
+        (isBoss ? 26 : 19) + waveDmg,
         'spread',
-        isBoss ? 1.25 : 1.05
+        isBoss ? 1.3 : 1.1,
+        isBoss
       );
     }
   }
 
   private fireTrackingOrbs(e: EnemyActor): void {
-    const speed = 17.5;
-    const count = e.kind === 'dreadnought' ? 2 : 1;
+    const speed = 18.0;
+    const waveDmg = Math.floor((this.wave - 1) * 0.85);
+    const isBoss = e.kind === 'dreadnought';
+    const count = isBoss ? 2 : 1;
     for (let k = 0; k < count; k++) {
       const ox = count === 2 ? (k === 0 ? -3.4 : 3.4) : 0;
       const sx = e.x + ox;
@@ -2144,18 +2166,20 @@ export class SpaceShooterEngine {
         _v1.x * speed,
         _v1.y * speed,
         _v1.z * speed,
-        e.kind === 'dreadnought' ? 16 : 13,
+        (isBoss ? 40 : 32) + waveDmg,
         'tracking',
-        1.15
+        1.25,
+        true
       );
     }
   }
 
   private spawnTelegraphedAreaAttack(e: EnemyActor): void {
     const isBoss = e.kind === 'dreadnought';
+    const waveDmg = Math.floor((this.wave - 1) * 0.9);
     const hpRatio = e.hp / Math.max(1, e.maxHp);
     const laneCount = isBoss && hpRatio <= 0.3 ? 2 : 1;
-    const radius = isBoss ? 3.2 : 2.6;
+    const radius = isBoss ? 3.25 : 2.65;
 
     for (let i = 0; i < laneCount; i++) {
       const offsetX = laneCount === 2 ? (i === 0 ? -3.2 : 3.2) : 0;
@@ -2174,7 +2198,7 @@ export class SpaceShooterEngine {
         warningDuration: 1.25,
         strikeTimer: 0.42,
         hasStruck: false,
-        damage: isBoss ? 24 : 18,
+        damage: (isBoss ? 48 : 36) + waveDmg,
       });
     }
     this.audio.playEnemyWarning();
@@ -2203,7 +2227,7 @@ export class SpaceShooterEngine {
           beamMat.color.setHex(0xffedd5);
           h.visuals.beamMesh.scale.set(2.4, 2.4, 1);
           beamMat.opacity = 0.92;
-          this.spawnExplosion(h.x, h.y, this.shipZ, 18, 0xff5500, 14);
+          this.spawnExplosion(h.x, h.y, this.shipZ, 24, 0xff3b30, 16);
 
           if (
             this.invulnTimer <= 0 &&
@@ -2213,7 +2237,12 @@ export class SpaceShooterEngine {
             const dx = this.shipX - h.x;
             const dy = this.shipY - h.y;
             if (dx * dx + dy * dy <= h.radius * h.radius) {
-              this.damagePlayer(h.damage);
+              this.damagePlayer(h.damage, {
+                isHeavy: true,
+                invulnDuration: 0.44,
+                sourceX: h.x,
+                sourceY: h.y,
+              });
             }
           }
         }
@@ -2248,8 +2277,8 @@ export class SpaceShooterEngine {
     mesh.position.set(sx, sy, sz);
     this.scene.add(mesh);
 
-    _v1.set(this.shipX - sx, this.shipY - sy, -sz).normalize();
-    const speed = kind === 'torpedo' ? 25 : kind === 'cluster' ? 19 : 14;
+    _v1.set(this.shipX - sx, this.shipY - sy, this.shipZ - sz).normalize();
+    const speed = kind === 'torpedo' ? 26 : kind === 'cluster' ? 20 : 14.5;
 
     this.enemyBombs.push({
       kind,
@@ -2267,6 +2296,7 @@ export class SpaceShooterEngine {
   }
 
   private updateEnemyBombs(dt: number): void {
+    const waveDmg = Math.floor((this.wave - 1) * 0.85);
     for (let i = this.enemyBombs.length - 1; i >= 0; i--) {
       const bomb = this.enemyBombs[i];
       bomb.age += dt;
@@ -2274,10 +2304,10 @@ export class SpaceShooterEngine {
 
       if (bomb.kind === 'torpedo') {
         // Gentle homing guidance toward player
-        _v1.set(this.shipX - bomb.x, this.shipY - bomb.y, 0 - bomb.z).normalize();
-        bomb.vx = THREE.MathUtils.damp(bomb.vx, _v1.x * 26, 2.2, dt);
-        bomb.vy = THREE.MathUtils.damp(bomb.vy, _v1.y * 26, 2.2, dt);
-        bomb.vz = THREE.MathUtils.damp(bomb.vz, _v1.z * 26, 2.2, dt);
+        _v1.set(this.shipX - bomb.x, this.shipY - bomb.y, this.shipZ - bomb.z).normalize();
+        bomb.vx = THREE.MathUtils.damp(bomb.vx, _v1.x * 27, 2.35, dt);
+        bomb.vy = THREE.MathUtils.damp(bomb.vy, _v1.y * 27, 2.35, dt);
+        bomb.vz = THREE.MathUtils.damp(bomb.vz, _v1.z * 27, 2.35, dt);
       } else if (bomb.kind === 'mine') {
         // Slow down as it nears playfield plane
         if (bomb.z > -18) {
@@ -2296,7 +2326,7 @@ export class SpaceShooterEngine {
 
       if (bomb.kind === 'cluster' && bomb.fuseTimer <= 0) {
         // Cluster bomb splits mid-air into 6 radial shrapnel bolts!
-        this.spawnExplosion(bomb.x, bomb.y, bomb.z, 14, 0xff5500, 12);
+        this.spawnExplosion(bomb.x, bomb.y, bomb.z, 16, 0xff5500, 13);
         this.audio.playExplosion('small');
         for (let k = 0; k < 6; k++) {
           const angle = (k / 6) * Math.PI * 2;
@@ -2306,10 +2336,11 @@ export class SpaceShooterEngine {
             bomb.z,
             Math.cos(angle) * 14,
             Math.sin(angle) * 10,
-            26,
-            12,
+            27,
+            18 + waveDmg,
             'spread',
-            1.1
+            1.15,
+            false
           );
         }
         this.scene.remove(bomb.mesh);
@@ -2325,11 +2356,11 @@ export class SpaceShooterEngine {
         continue;
       }
 
-      if (Math.abs(bomb.z - this.shipZ) < 2.15) {
+      if (Math.abs(bomb.z - this.shipZ) < 2.45) {
         const dx = bomb.x - this.shipX;
         const dy = bomb.y - this.shipY;
-        if (dx * dx + dy * dy <= 2.2 * 2.2) {
-          this.spawnExplosion(bomb.x, bomb.y, bomb.z, 18, 0xff4500, 14);
+        if (dx * dx + dy * dy <= 2.55 * 2.55) {
+          this.spawnExplosion(bomb.x, bomb.y, bomb.z, 24, 0xff3b1c, 16);
           this.scene.remove(bomb.mesh);
           disposeObjectTree(bomb.mesh);
           this.enemyBombs.splice(i, 1);
@@ -2337,7 +2368,14 @@ export class SpaceShooterEngine {
             this.score += 150 * this.multiplier;
             this.audio.playExplosion('small');
           } else if (this.invulnTimer <= 0) {
-            this.damagePlayer(22);
+            const bombDmg =
+              (bomb.kind === 'torpedo' ? 42 : bomb.kind === 'mine' ? 40 : 36) + waveDmg;
+            this.damagePlayer(bombDmg, {
+              isHeavy: true,
+              invulnDuration: 0.42,
+              sourceX: bomb.x,
+              sourceY: bomb.y,
+            });
           }
         }
       }
@@ -2543,42 +2581,99 @@ export class SpaceShooterEngine {
         continue;
       }
 
-      if (Math.abs(b.z - this.shipZ) < 1.65) {
+      if (Math.abs(b.z - this.shipZ) < 1.8) {
         const dx = b.x - this.shipX;
         const dy = b.y - this.shipY;
-        if (dx * dx + dy * dy <= 1.75 * 1.75) {
+        const hitRadius = b.pattern === 'tracking' ? 2.05 : 1.85;
+        if (dx * dx + dy * dy <= hitRadius * hitRadius) {
           b.active = false;
           b.mesh.visible = false;
           if (this.afterburnerActiveTimer > 0) {
             this.spawnExplosion(b.x, b.y, b.z, 5, 0x38bdf8, 7);
           } else if (this.invulnTimer <= 0) {
-            this.damagePlayer(b.damage);
+            this.damagePlayer(b.damage, {
+              isHeavy: b.isHeavy,
+              invulnDuration: b.isHeavy ? 0.38 : 0.22,
+              sourceX: b.x,
+              sourceY: b.y,
+            });
           }
         }
       }
     }
   }
 
-  private damagePlayer(amount: number): void {
-    this.shieldRegenDelay = 3.0;
-    this.playerHitFlash = 0.25;
-    this.invulnTimer = 0.38;
-    this.cameraShake = Math.min(0.7, this.cameraShake + 0.38);
+  private damagePlayer(
+    amount: number,
+    opts?: {
+      isHeavy?: boolean;
+      invulnDuration?: number;
+      sourceX?: number;
+      sourceY?: number;
+    }
+  ): void {
+    const isHeavy = opts?.isHeavy ?? false;
+
+    this.shieldRegenDelay = isHeavy ? 4.4 : 3.2;
+    this.invulnTimer = opts?.invulnDuration ?? (isHeavy ? 0.42 : 0.22);
+    this.cameraShake = Math.min(1.0, this.cameraShake + (isHeavy ? 0.65 : 0.36));
     this.multiplier = Math.max(1, this.multiplier - 1);
 
+    // Apply physical knockback jolt away from incoming hit
+    if (opts?.sourceX !== undefined && opts?.sourceY !== undefined) {
+      const kx = this.shipX - opts.sourceX;
+      const ky = this.shipY - opts.sourceY;
+      const kLen = Math.hypot(kx, ky);
+      const impulse = isHeavy ? 15 : 6.5;
+      if (kLen > 0.05) {
+        this.shipVx += (kx / kLen) * impulse;
+        this.shipVy += (ky / kLen) * impulse * 0.7;
+      } else {
+        this.shipVx += (Math.random() < 0.5 ? -1 : 1) * impulse;
+      }
+    }
+
+    // Shields absorb enemy attacks completely until depleted; only overflow/unshielded hits damage health hull
     const hadShield = this.shield > 0;
-    this.audio.playPlayerHit(hadShield);
+    let hullDamaged = false;
 
     if (this.shield > 0) {
       const absorbed = Math.min(this.shield, amount);
       this.shield -= absorbed;
-      const remainder = amount - absorbed;
-      if (remainder > 0) this.health = Math.max(0, this.health - remainder);
+      const overflow = amount - absorbed;
+      if (overflow > 0) {
+        this.health = Math.max(0, this.health - overflow);
+        hullDamaged = true;
+      }
     } else {
       this.health = Math.max(0, this.health - amount);
+      hullDamaged = true;
     }
 
-    this.spawnExplosion(this.shipX, this.shipY, this.shipZ, 10, hadShield ? 0x38bdf8 : 0xef4444, 9);
+    this.lastHitHull = hullDamaged;
+    this.playerHitFlashMax = hullDamaged ? (isHeavy ? 0.5 : 0.32) : isHeavy ? 0.26 : 0.16;
+    this.playerHitFlash = this.playerHitFlashMax;
+
+    // Audio & particle feedback reflecting shield absorption vs hull damage
+    this.audio.playPlayerHit(!hullDamaged);
+    if (isHeavy) {
+      this.audio.playExplosion('medium');
+      this.hitstopTimer = Math.max(this.hitstopTimer, 0.032);
+    }
+
+    if (hadShield) {
+      this.spawnExplosion(this.shipX, this.shipY, this.shipZ, isHeavy ? 12 : 7, 0x38bdf8, 10);
+    }
+    if (hullDamaged) {
+      this.spawnExplosion(
+        this.shipX,
+        this.shipY,
+        this.shipZ,
+        isHeavy ? 18 : 10,
+        0xef4444,
+        isHeavy ? 14 : 10
+      );
+    }
 
     if (this.health <= 0) {
       this.health = 0;
@@ -2811,6 +2906,10 @@ export class SpaceShooterEngine {
       sectorMode: this.sectorMode,
       arenaName: ARENA_THEMES[this.sectorMode].name,
       dangerAlert: this.health / this.maxHealth <= 0.3,
+      hitFlash:
+        this.playerHitFlash > 0
+          ? Math.min(1, (this.playerHitFlash / Math.max(0.01, this.playerHitFlashMax)) * (this.lastHitHull ? 1.0 : 0.42))
+          : 0,
       bannerText: this.bannerText,
       bossName,
       bossHpRatio,

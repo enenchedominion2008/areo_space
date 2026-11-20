@@ -128,6 +128,15 @@ export const GameHud: React.FC<GameHudProps> = ({
 
   return (
     <div className="fixed inset-0 pointer-events-none z-10 flex flex-col justify-between p-2.5 sm:p-4 font-mono select-none">
+      {hud.hitFlash > 0.03 && (
+        <div
+          className="fixed inset-0 pointer-events-none"
+          style={{
+            boxShadow: `inset 0 0 96px rgba(239, 68, 68, ${(hud.hitFlash * 0.72).toFixed(2)})`,
+            border: `2px solid rgba(248, 113, 113, ${(hud.hitFlash * 0.55).toFixed(2)})`,
+          }}
+        />
+      )}
       {/* Top Perimeter */}
       <div className="flex items-start justify-between gap-2 sm:gap-4">
         {/* Top-Left: Primary Score & Compact Secondary Metadata */}
