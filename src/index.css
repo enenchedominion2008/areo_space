@@ -60,3 +60,85 @@ body,
     font-size: 10px;
   }
 }
+
+@media (max-width: 639px), (orientation: landscape) and (max-height: 500px) and (max-width: 960px) {
+  .end-screen-overlay {
+    padding: 8px;
+  }
+
+  .end-screen-card,
+  .pause-screen-card {
+    max-width: 320px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .end-screen-card > *,
+  .pause-screen-card > * {
+    margin-block: 0;
+  }
+
+  .end-screen-subtitle {
+    font-size: 9px;
+    letter-spacing: 0.16em;
+  }
+
+  .end-screen-title {
+    margin-top: 2px;
+    font-size: 18px;
+    line-height: 1.15;
+  }
+
+  .end-screen-stats {
+    gap: 6px;
+    font-size: 9px;
+  }
+
+  .end-screen-stat {
+    padding: 6px 8px;
+  }
+
+  .end-screen-stat-value {
+    font-size: 13px;
+    line-height: 1.2;
+  }
+
+  .end-screen-credits {
+    padding: 6px 8px;
+    font-size: 10px;
+  }
+
+  .end-screen-credits > div {
+    font-size: 10px;
+  }
+
+  .end-screen-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .end-screen-actions > * {
+    margin-block: 0;
+  }
+
+  .end-screen-actions button {
+    padding-top: 7px;
+    padding-bottom: 7px;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+  }
+}
+
+@media (orientation: landscape) and (max-height: 500px) and (max-width: 960px) {
+  .end-screen-card {
+    max-width: 440px;
+  }
+
+  .end-screen-stats {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+

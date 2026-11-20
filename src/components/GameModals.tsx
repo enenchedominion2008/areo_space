@@ -105,7 +105,7 @@ export const GameModals: React.FC<GameModalsProps> = ({
                 {phase === 'paused' && (
                   <div className="p-3 bg-emerald-950/35 border border-emerald-500/40 rounded-sm">
                     <div className="text-xs text-emerald-300 uppercase tracking-wider mb-2">
-                      Save Level {hud.wave}/20 Progress ({hud.score.toLocaleString()} PTS)
+                      Save Level {hud.wave}/{hud.totalLevels} Progress ({hud.score.toLocaleString()} PTS)
                     </div>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                       {['autosave', 'slot_1', 'slot_2', 'slot_3'].map((slotId) => (
@@ -145,7 +145,7 @@ export const GameModals: React.FC<GameModalsProps> = ({
                               {JETS[slot.selected_jet || 'vanguard']?.name}
                             </span>
                             <span className="text-xs text-emerald-300 tabular-nums">
-                              LVL {slot.wave}/20 · {slot.score.toLocaleString()} PTS
+                              LVL {slot.wave}/30 · {slot.score.toLocaleString()} PTS
                             </span>
                           </div>
                           <div className="mt-1 text-[11px] text-slate-400 tabular-nums">
@@ -344,7 +344,7 @@ export const GameModals: React.FC<GameModalsProps> = ({
                             {JETS[entry.selected_jet || 'vanguard']?.name}
                           </span>
                           <span className="text-slate-400 tabular-nums">
-                            Lvl {entry.wave}/20 · {entry.kills} Kills
+                            Lvl {entry.wave}/30 · {entry.kills} Kills
                           </span>
                         </div>
                         <span className="text-emerald-300 font-bold tabular-nums text-sm">
@@ -443,12 +443,12 @@ export const GameModals: React.FC<GameModalsProps> = ({
               fontSize="27"
               letterSpacing="14"
             >
-              VECTOR 20
+              VECTOR 30
             </text>
           </svg>
 
           <p className="title-screen__description mt-2 text-xs sm:text-sm text-slate-300/90 max-w-md leading-relaxed">
-            20 levels across 5 deep-space celestial arenas with an end-of-level boss fight in every stage.
+            30 levels across 15 deep-space cyberpunk arenas with an end-of-level boss fight in every stage.
             Auto-firing weapons, fragment upgrades, enemy bombs, and 8 cyberpunk hangar jets with special powers.
           </p>
 
@@ -540,16 +540,16 @@ export const GameModals: React.FC<GameModalsProps> = ({
   if (phase === 'paused') {
     if (suppressPauseModal) return null;
     return (
-      <div className="fixed inset-0 z-20 flex items-center justify-center p-4 bg-[#02060d]/78 font-mono">
-        <div className="w-full max-w-md bg-[#06101b] border border-emerald-400/50 p-6 rounded-sm shadow-[0_0_35px_rgba(0,255,136,0.18)] space-y-5">
+      <div className="end-screen-overlay fixed inset-0 z-20 flex items-center justify-center p-4 bg-[#02060d]/78 font-mono">
+        <div className="pause-screen-card w-full max-w-md max-h-[calc(100vh-1rem)] overflow-y-auto bg-[#06101b] border border-emerald-400/50 p-6 rounded-sm shadow-[0_0_35px_rgba(0,255,136,0.18)] space-y-5">
           <div className="text-center">
-            <div className="text-xs tracking-[0.25em] text-emerald-300 uppercase">Mission Paused</div>
-            <h2 className="mt-1 text-2xl font-bold text-white tracking-wider">
-              LEVEL {hud.wave}/20 · {hud.score.toLocaleString()} PTS
+            <div className="end-screen-subtitle text-xs tracking-[0.25em] text-emerald-300 uppercase">Mission Paused</div>
+            <h2 className="end-screen-title mt-1 text-2xl font-bold text-white tracking-wider">
+              LEVEL {hud.wave}/{hud.totalLevels} · {hud.score.toLocaleString()} PTS
             </h2>
           </div>
 
-          <div className="space-y-2.5">
+          <div className="end-screen-actions space-y-2.5">
             <button
               type="button"
               onClick={onResumeGame}
@@ -608,50 +608,50 @@ export const GameModals: React.FC<GameModalsProps> = ({
     const credits = profile?.credits ?? 0;
     const canRevive = !isVictory && credits >= 1000;
     return (
-      <div className="fixed inset-0 z-20 flex items-center justify-center p-4 bg-[#02060d]/84 font-mono">
+      <div className="end-screen-overlay fixed inset-0 z-20 flex items-center justify-center p-4 bg-[#02060d]/84 font-mono">
         <div
-          className={`w-full max-w-md bg-[#06101b] border p-6 rounded-sm space-y-5 ${
+          className={`end-screen-card w-full max-w-md max-h-[calc(100vh-1rem)] overflow-y-auto bg-[#06101b] border p-6 rounded-sm space-y-5 ${
             isVictory
               ? 'border-emerald-400/70 shadow-[0_0_45px_rgba(0,255,136,0.28)]'
               : 'border-orange-500/60 shadow-[0_0_40px_rgba(249,115,22,0.22)]'
           }`}
         >
-          <div className="text-center">
+          <div className="end-screen-header text-center">
             <div
-              className={`text-xs tracking-[0.25em] uppercase flex items-center justify-center gap-1.5 ${
+              className={`end-screen-subtitle text-xs tracking-[0.25em] uppercase flex items-center justify-center gap-1.5 ${
                 isVictory ? 'text-emerald-300' : 'text-orange-400'
               }`}
             >
               {isVictory && <Award className="w-4 h-4" />}
-              <span>{isVictory ? 'All 20 Sectors Liberated' : 'Hull Integrity Lost'}</span>
+              <span>{isVictory ? 'All 30 Sectors Liberated' : 'Hull Integrity Lost'}</span>
             </div>
-            <h2 className="mt-1 text-3xl font-extrabold text-white tracking-wider">
+            <h2 className="end-screen-title mt-1 text-3xl font-extrabold text-white tracking-wider">
               {isVictory ? 'CAMPAIGN VICTORY' : 'MISSION ENDED'}
             </h2>
           </div>
 
-          <div className="grid grid-cols-2 gap-2.5 text-xs">
-            <div className="p-3 bg-[#040a12] border border-slate-800">
+          <div className="end-screen-stats grid grid-cols-2 gap-2.5 text-xs">
+            <div className="end-screen-stat p-3 bg-[#040a12] border border-slate-800">
               <div className="text-slate-400">FINAL SCORE</div>
-              <div className="text-lg font-bold text-emerald-300 tabular-nums">
+              <div className="end-screen-stat-value text-lg font-bold text-emerald-300 tabular-nums">
                 {hud.score.toLocaleString()}
               </div>
             </div>
-            <div className="p-3 bg-[#040a12] border border-slate-800">
+            <div className="end-screen-stat p-3 bg-[#040a12] border border-slate-800">
               <div className="text-slate-400">LEVEL REACHED</div>
-              <div className="text-lg font-bold text-white tabular-nums">LEVEL {hud.wave}/20</div>
+              <div className="end-screen-stat-value text-lg font-bold text-white tabular-nums">LEVEL {hud.wave}/{hud.totalLevels}</div>
             </div>
-            <div className="p-3 bg-[#040a12] border border-slate-800">
+            <div className="end-screen-stat p-3 bg-[#040a12] border border-slate-800">
               <div className="text-slate-400">HOSTILES DESTROYED</div>
-              <div className="text-lg font-bold text-orange-300 tabular-nums">{hud.kills}</div>
+              <div className="end-screen-stat-value text-lg font-bold text-orange-300 tabular-nums">{hud.kills}</div>
             </div>
-            <div className="p-3 bg-[#040a12] border border-slate-800">
+            <div className="end-screen-stat p-3 bg-[#040a12] border border-slate-800">
               <div className="text-slate-400">ACCURACY</div>
-              <div className="text-lg font-bold text-fuchsia-300 tabular-nums">{accuracy}%</div>
+              <div className="end-screen-stat-value text-lg font-bold text-fuchsia-300 tabular-nums">{accuracy}%</div>
             </div>
           </div>
 
-          <div className="p-2.5 bg-[#040a12] border border-amber-500/40 text-center space-y-1">
+          <div className="end-screen-credits p-2.5 bg-[#040a12] border border-amber-500/40 text-center space-y-1">
             {lastRunCredits !== null && (
               <div className="text-xs text-amber-300 font-bold">
                 +{lastRunCredits.toLocaleString()} CREDITS EARNED THIS RUN
@@ -663,7 +663,7 @@ export const GameModals: React.FC<GameModalsProps> = ({
             </div>
           </div>
 
-          <div className="space-y-2.5">
+          <div className="end-screen-actions space-y-2.5">
             {!isVictory && (
               <button
                 type="button"

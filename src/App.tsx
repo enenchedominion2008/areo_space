@@ -25,7 +25,7 @@ const INITIAL_HUD: HudSnapshot = {
   maxMultiplier: 1,
   comboTimer: 0,
   wave: 1,
-  totalLevels: 20,
+  totalLevels: 30,
   waveProgress: 0,
   waveTotal: 6,
   kills: 0,

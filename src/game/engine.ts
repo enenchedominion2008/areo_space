@@ -43,6 +43,8 @@ const _quat = new THREE.Quaternion();
 const _euler = new THREE.Euler();
 const _scale = new THREE.Vector3();
 const _whiteColor = new THREE.Color(0xffffff);
+const _rimNormalColor = new THREE.Color(0xd946ef);
+const _rimBossColor = new THREE.Color(0xff4d2e);
 
 const AFTERBURNER_DURATION = 5.0;
 const AFTERBURNER_COOLDOWN = 14.0;
@@ -205,6 +207,7 @@ export class SpaceShooterEngine {
   private bloomPass: UnrealBloomPass | null = null;
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
+  private rimLight!: THREE.DirectionalLight;
   private environment: CyberTrenchEnvironment;
   private playerRig: PlayerShipRig;
   private reticleGroup: THREE.Group;
@@ -230,7 +233,7 @@ export class SpaceShooterEngine {
   private hudEmitAccum = 0;
   private hitstopTimer = 0;
 
-  // Game progression state (20 Levels, boss at end of every level)
+  // Game progression state (30 Levels, boss at end of every level)
   private phase: GamePhase = 'title';
   private jetId: JetId = 'vanguard';
   private sectorMode: ArenaThemeId = 'emerald_trench';
@@ -239,7 +242,7 @@ export class SpaceShooterEngine {
   private multiplier = 1;
   private maxMultiplier = 1;
   private comboTimer = 0;
-  private wave = 1; // 1..20
+  private wave = 1; // 1..30
   private waveKills = 0;
   private waveTotal = 6;
   private waveSpawnQueue: EnemyKind[] = [];
@@ -282,6 +285,8 @@ export class SpaceShooterEngine {
   private shieldPulseActiveTimer = 0;
   private dataVirusTimer = 0;
   private shogunDroneTimer = 0;
+  private kitsuneFoxfireTimer = 0;
+  private specialTrailAccum = 0;
   private invulnTimer = 0;
   private playerHitFlash = 0;
   private playerHitFlashMax = 0.28;
@@ -290,7 +295,11 @@ export class SpaceShooterEngine {
   private bannerText: string | null = null;
   private bannerTimer = 0;
 
-  // Boss Chase Phase state
+  // Boss Chase Phase & Boss Scene Transition state
+  private bossSceneBlend = 0;
+  private camLookX = 0;
+  private camLookY = -0.3;
+  private camLookZ = -24;
   private bossChasePhase: 'none' | 'entering' | 'active' | 'exiting' = 'none';
   private bossChaseTimer = 0;
   private bossChaseBlend = 0;
@@ -354,16 +363,16 @@ export class SpaceShooterEngine {
     this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
     pmrem.dispose();
 
-    const hemi = new THREE.HemisphereLight(0x7dd3fc, 0x064e3b, 0.78);
+    const hemi = new THREE.HemisphereLight(0x93c5fd, 0x064e3b, 0.88);
     this.scene.add(hemi);
 
-    const keyLight = new THREE.DirectionalLight(0xfff1e0, 2.2);
+    const keyLight = new THREE.DirectionalLight(0xfff1e0, 2.05);
     keyLight.position.set(12, 18, 14);
     this.scene.add(keyLight);
 
-    const rimLight = new THREE.DirectionalLight(0xd946ef, 1.35);
-    rimLight.position.set(-14, 6, -12);
-    this.scene.add(rimLight);
+    this.rimLight = new THREE.DirectionalLight(0xd946ef, 0.92);
+    this.rimLight.position.set(-14, 6, -12);
+    this.scene.add(this.rimLight);
 
     this.environment = new CyberTrenchEnvironment(this.renderer, this.scene);
     this.scene.add(this.environment.group);
@@ -447,7 +456,7 @@ export class SpaceShooterEngine {
       const h = container.clientHeight || window.innerHeight;
       this.composer = new EffectComposer(this.renderer);
       this.composer.addPass(new RenderPass(this.scene, this.camera));
-      this.bloomPass = new UnrealBloomPass(new THREE.Vector2(w, h), 0.56, 0.35, 0.72);
+      this.bloomPass = new UnrealBloomPass(new THREE.Vector2(w, h), 0.3, 0.22, 0.9);
       this.composer.addPass(this.bloomPass);
       this.renderer.compile(this.scene, this.camera);
     }
@@ -750,12 +759,15 @@ export class SpaceShooterEngine {
     this.missileCooldown = 0;
     this.shieldPulseCooldown = 0;
     this.shieldPulseActiveTimer = 0;
+    this.dataVirusTimer = 0;
+    this.shogunDroneTimer = 0;
+    this.kitsuneFoxfireTimer = 0;
     this.invulnTimer = 1.2;
     this.fragmentDropTimer = 7.0;
     this.resetBossChaseState(true);
     this.phase = 'playing';
 
-    this.setupLevel(THREE.MathUtils.clamp(startLevel, 1, 20));
+    this.setupLevel(THREE.MathUtils.clamp(startLevel, 1, 30));
     this.emitHud();
   }
 
@@ -773,7 +785,7 @@ export class SpaceShooterEngine {
     const laserTier = profile?.laser_upgrade ?? 0;
     this.baseDamageMult = (1 + laserTier * 0.22) * jet.damageMult;
 
-    this.wave = THREE.MathUtils.clamp(checkpoint.wave, 1, 20);
+    this.wave = THREE.MathUtils.clamp(checkpoint.wave, 1, 30);
     this.score = checkpoint.score;
     this.multiplier = checkpoint.multiplier;
     this.maxMultiplier = checkpoint.maxMultiplier;
@@ -799,12 +811,15 @@ export class SpaceShooterEngine {
     this.missileCooldown = 0;
     this.shieldPulseCooldown = 0;
     this.shieldPulseActiveTimer = 0;
+    this.dataVirusTimer = 0;
+    this.shogunDroneTimer = 0;
+    this.kitsuneFoxfireTimer = 0;
     this.invulnTimer = 1.5;
     this.resetBossChaseState(true);
     this.phase = 'playing';
 
     this.setupLevel(this.wave);
-    this.showBanner(`CHECKPOINT RESTORED · LEVEL ${this.wave}/20`, 2.4);
+    this.showBanner(`CHECKPOINT RESTORED · LEVEL ${this.wave}/30`, 2.4);
     this.emitHud();
   }
 
@@ -926,10 +941,13 @@ export class SpaceShooterEngine {
     this.missileCooldown = 0;
     this.shieldPulseCooldown = 0;
     this.shieldPulseActiveTimer = 0;
+    this.dataVirusTimer = 0;
+    this.shogunDroneTimer = 0;
+    this.kitsuneFoxfireTimer = 0;
     this.shipZ = 0;
     this.phase = 'playing';
     this.lastTime = performance.now();
-    this.showBanner(`SYSTEM REBOOT · LEVEL ${this.wave}/20 CONTINUED`, 2.6);
+    this.showBanner(`SYSTEM REBOOT · LEVEL ${this.wave}/30 CONTINUED`, 2.6);
     this.emitHud();
   }
 
@@ -987,11 +1005,11 @@ export class SpaceShooterEngine {
   }
 
   // =========================================================================
-  // 20-Level Progression + End-of-Level Boss Fights
+  // 30-Level Progression + End-of-Level Boss Fights
   // =========================================================================
 
   private setupLevel(levelNum: number): void {
-    const cfg = LEVELS[THREE.MathUtils.clamp(levelNum, 1, 20) - 1];
+    const cfg = LEVELS[THREE.MathUtils.clamp(levelNum, 1, 30) - 1];
     this.wave = cfg.level;
     this.sectorMode = cfg.arena;
     this.environment.setTheme(cfg.arena);
@@ -999,6 +1017,7 @@ export class SpaceShooterEngine {
     this.waveSpawnQueue = [];
     this.bossPending = true;
     this.bossSpawned = false;
+    this.bossSceneBlend = 0;
     this.resetBossChaseState(true);
 
     for (let i = 0; i < cfg.squadCount; i++) {
@@ -1015,7 +1034,7 @@ export class SpaceShooterEngine {
     this.spawnCooldown = 0.65;
 
     const arenaName = ARENA_THEMES[cfg.arena].name;
-    this.showBanner(`LEVEL ${cfg.level}/20 · ${arenaName}`, 2.6);
+    this.showBanner(`LEVEL ${cfg.level}/30 · ${arenaName}`, 2.6);
   }
 
   private spawnEnemy(kind: EnemyKind): void {
@@ -1188,6 +1207,12 @@ export class SpaceShooterEngine {
     if (this.playerRig.accentRing) {
       this.playerRig.accentRing.rotation.z += dt * 2.4;
     }
+    if (this.playerRig.secondaryRing) {
+      this.playerRig.secondaryRing.rotation.z -= dt * 1.9;
+    }
+    if (this.playerRig.boostAura) {
+      this.playerRig.boostAura.visible = false;
+    }
 
     const flicker = 0.88 + Math.sin(elapsed * 42) * 0.14;
     this.playerRig.leftFlame.scale.set(1, 1, flicker);
@@ -1207,14 +1232,23 @@ export class SpaceShooterEngine {
       this.dataVirusTimer > 0
         ? 0.05
         : this.jetId === 'chrono' && this.specialActiveTimer > 0
-        ? 0.45
+        ? 0.4
         : 1.0;
     const enemyDt = dt * timeSlow;
 
+    const bossActive = this.enemies.some((e) => e.kind === 'dreadnought');
+    this.bossSceneBlend = THREE.MathUtils.damp(this.bossSceneBlend, bossActive ? 1 : 0, 1.85, dt);
+    if (this.bossSceneBlend < 0.002 && !bossActive) this.bossSceneBlend = 0;
+    this.rimLight.color.copy(_rimNormalColor).lerp(_rimBossColor, this.bossSceneBlend);
+
     const afterburnerActive = this.afterburnerActiveTimer > 0;
+    const specialBoostActive = this.specialActiveTimer > 0;
     const scrollSpeed =
-      levelCfg.scrollSpeed + (afterburnerActive ? 56 : 0) + (this.barrelRollTimer > 0 ? 18 : 0);
-    this.environment.update(dt, scrollSpeed, this.sectorMode);
+      levelCfg.scrollSpeed +
+      (afterburnerActive ? 56 : 0) +
+      (specialBoostActive ? 20 : 0) +
+      (this.barrelRollTimer > 0 ? 18 : 0);
+    this.environment.update(dt, scrollSpeed, this.sectorMode, bossActive);
 
     // Timers
     if (this.bannerTimer > 0) {
@@ -1247,9 +1281,49 @@ export class SpaceShooterEngine {
     if (this.jetId === 'shogun_mk9' && this.specialActiveTimer > 0 && !chaseActive) {
       this.shogunDroneTimer -= dt;
       if (this.shogunDroneTimer <= 0) {
-        this.shogunDroneTimer = 0.28;
-        this.spawnPlayerBolt(this.shipX - 2.3, this.shipY + 0.5, this.shipZ - 0.5, -4, 0, -110, 2.2 * this.baseDamageMult, true, false, 0xfbbf24, 1.3);
-        this.spawnPlayerBolt(this.shipX + 2.3, this.shipY + 0.5, this.shipZ - 0.5, 4, 0, -110, 2.2 * this.baseDamageMult, true, false, 0xfbbf24, 1.3);
+        this.shogunDroneTimer = 0.24;
+        this.spawnPlayerBolt(this.shipX - 2.35, this.shipY + 0.55, this.shipZ - 0.5, -5, 0, -114, 2.8 * this.baseDamageMult, true, false, 0xfbbf24, 1.45);
+        this.spawnPlayerBolt(this.shipX + 2.35, this.shipY + 0.55, this.shipZ - 0.5, 5, 0, -114, 2.8 * this.baseDamageMult, true, false, 0xfbbf24, 1.45);
+      }
+    }
+
+    // Cyber Kitsune Foxfire Seeker Salvos (locked during boss chase phase)
+    if (this.jetId === 'cyber_kitsune' && this.specialActiveTimer > 0 && !chaseActive) {
+      this.kitsuneFoxfireTimer -= dt;
+      if (this.kitsuneFoxfireTimer <= 0) {
+        this.kitsuneFoxfireTimer = 0.26;
+        const tA = this.enemies.length > 0 ? this.enemies[0] : null;
+        const tB = this.enemies.length > 1 ? this.enemies[1] : tA;
+        this.spawnPlayerBolt(
+          this.shipX - 1.5,
+          this.shipY + 0.4,
+          this.shipZ - 0.9,
+          -14,
+          3,
+          -116,
+          2.6 * this.baseDamageMult,
+          true,
+          false,
+          0xff2e93,
+          1.35,
+          false,
+          tA ? tA.id : null
+        );
+        this.spawnPlayerBolt(
+          this.shipX + 1.5,
+          this.shipY + 0.4,
+          this.shipZ - 0.9,
+          14,
+          3,
+          -116,
+          2.6 * this.baseDamageMult,
+          true,
+          false,
+          0xff2e93,
+          1.35,
+          false,
+          tB ? tB.id : null
+        );
       }
     }
 
@@ -1328,7 +1402,15 @@ export class SpaceShooterEngine {
       this.audio.playBarrelRoll();
     }
 
-    const boostMult = this.afterburnerActiveTimer > 0 ? 1.75 : 1.0;
+    const specialSpeedMult =
+      this.specialActiveTimer > 0
+        ? this.jetId === 'phantom'
+          ? 1.35
+          : this.jetId === 'vanguard' || this.jetId === 'ronin_x' || this.jetId === 'cyber_kitsune'
+          ? 1.25
+          : 1.15
+        : 1.0;
+    const boostMult = (this.afterburnerActiveTimer > 0 ? 1.75 : 1.0) * specialSpeedMult;
     const speedX = 24 * jet.speedMult * boostMult;
     const speedY = 17 * jet.speedMult * boostMult;
     const dampRate = this.afterburnerActiveTimer > 0 ? 14 : 11;
@@ -1357,17 +1439,42 @@ export class SpaceShooterEngine {
       10,
       dt
     );
+    const isSpecialNow = this.specialActiveTimer > 0;
+    const isAfterburnerNow = this.afterburnerActiveTimer > 0;
     if (this.playerRig.accentRing) {
-      this.playerRig.accentRing.rotation.z += dt * (this.afterburnerActiveTimer > 0 ? 9.5 : 3.5);
+      this.playerRig.accentRing.rotation.z += dt * (isAfterburnerNow ? 9.5 : isSpecialNow ? 7.2 : 3.5);
+    }
+    if (this.playerRig.secondaryRing) {
+      this.playerRig.secondaryRing.rotation.z -= dt * (isAfterburnerNow ? 7.8 : isSpecialNow ? 6.0 : 2.2);
+    }
+    if (this.playerRig.boostAura) {
+      const auraMat = this.playerRig.boostAura.material as THREE.MeshBasicMaterial;
+      if (isSpecialNow) {
+        this.playerRig.boostAura.visible = true;
+        this.playerRig.boostAura.rotation.z += dt * 3.8;
+        this.playerRig.boostAura.scale.setScalar(1.0 + Math.sin(performance.now() * 0.022) * 0.08);
+        auraMat.color.setHex(jet.accentHex);
+        auraMat.opacity = THREE.MathUtils.damp(
+          auraMat.opacity,
+          0.14 + Math.sin(performance.now() * 0.03) * 0.04,
+          14,
+          dt
+        );
+      } else {
+        auraMat.opacity = THREE.MathUtils.damp(auraMat.opacity, 0, 12, dt);
+        if (auraMat.opacity < 0.02) {
+          this.playerRig.boostAura.visible = false;
+        }
+      }
     }
 
     const shieldMat = this.playerRig.shieldBubble.material as THREE.MeshBasicMaterial;
-    const aegisActive = this.jetId === 'chrono' && this.specialActiveTimer > 0;
+    const aegisActive = (this.jetId === 'chrono' || this.jetId === 'phantom' || this.jetId === 'cyber_kitsune') && isSpecialNow;
     const shieldPulseActive = this.shieldPulseActiveTimer > 0;
     const shieldTargetOpacity = shieldPulseActive
       ? 0.56
       : aegisActive
-      ? 0.5
+      ? 0.48
       : this.barrelRollTimer > 0
       ? 0.35
       : this.playerHitFlash > 0
@@ -1383,12 +1490,28 @@ export class SpaceShooterEngine {
     shieldMat.opacity = THREE.MathUtils.damp(shieldMat.opacity, shieldTargetOpacity, 14, dt);
     this.playerRig.shieldBubble.rotation.y += dt * (shieldPulseActive ? 6.5 : 3.5);
 
-    const isOverdrive = this.jetId === 'vanguard' && this.specialActiveTimer > 0;
-    const isAfterburnerNow = this.afterburnerActiveTimer > 0;
+    const isOverdrive = this.jetId === 'vanguard' && isSpecialNow;
     const flamePulse =
-      (isAfterburnerNow ? 2.25 : isOverdrive ? 1.5 : 1.0) + Math.sin(performance.now() * 0.05) * 0.22;
-    this.playerRig.leftFlame.scale.set(isAfterburnerNow ? 1.35 : 1, isAfterburnerNow ? 1.35 : 1, flamePulse);
-    this.playerRig.rightFlame.scale.set(isAfterburnerNow ? 1.35 : 1, isAfterburnerNow ? 1.35 : 1, flamePulse);
+      (isAfterburnerNow ? 2.25 : isSpecialNow ? 1.68 : 1.0) + Math.sin(performance.now() * 0.05) * 0.22;
+    this.playerRig.leftFlame.scale.set(
+      isAfterburnerNow ? 1.35 : isSpecialNow ? 1.18 : 1,
+      isAfterburnerNow ? 1.35 : isSpecialNow ? 1.18 : 1,
+      flamePulse
+    );
+    this.playerRig.rightFlame.scale.set(
+      isAfterburnerNow ? 1.35 : isSpecialNow ? 1.18 : 1,
+      isAfterburnerNow ? 1.35 : isSpecialNow ? 1.18 : 1,
+      flamePulse
+    );
+
+    if (isSpecialNow && !isAfterburnerNow) {
+      this.specialTrailAccum += dt;
+      if (this.specialTrailAccum >= 0.045) {
+        this.specialTrailAccum = 0;
+        this.spawnTrailParticle(this.shipX - 0.45, this.shipY + 0.08, this.shipZ + 1.9, 0, 0, 20, jet.accentHex, 0.72);
+        this.spawnTrailParticle(this.shipX + 0.45, this.shipY + 0.08, this.shipZ + 1.9, 0, 0, 20, jet.accentHex, 0.72);
+      }
+    }
 
     // Afterburner bright engine trails + ram prow + speed streak particles
     const lTrailMat = this.playerRig.leftAfterburnerTrail.material as THREE.MeshBasicMaterial;
@@ -1468,14 +1591,14 @@ export class SpaceShooterEngine {
       this.audio.playWaveClear();
       this.shield = Math.min(this.maxShield, this.shield + 35);
 
-      if (this.wave >= 20) {
-        // Completed all 20 levels!
+      if (this.wave >= 30) {
+        // Completed all 30 levels!
         this.phase = 'victory';
         const accuracy = this.shotsFired > 0 ? Math.round((this.shotsHit / this.shotsFired) * 100) : 0;
         this.emitHud();
         this.callbacks.onGameOver({
           score: this.score,
-          wave: 20,
+          wave: 30,
           kills: this.kills,
           maxMultiplier: this.maxMultiplier,
           accuracy,
@@ -1512,34 +1635,39 @@ export class SpaceShooterEngine {
     this.updateEnemyBolts(enemyDt);
     this.updateFragments(dt);
 
-    // 5. Smooth Chase / Orbital Front-Facing Camera
+    // 5. Smooth Chase / Boss Encounter / Orbital Front-Facing Camera
     this.cameraShake = THREE.MathUtils.damp(this.cameraShake, 0, 10, dt);
     const shakeX = (Math.random() - 0.5) * this.cameraShake;
     const shakeY = (Math.random() - 0.5) * this.cameraShake;
 
-    const b = this.bossChaseBlend;
+    const rawB = this.bossChaseBlend;
+    const b = rawB * rawB * (3 - 2 * rawB);
+    const bossFrame = this.bossSceneBlend * (1 - b);
     const targetFov = Math.max(
-      isAfterburnerNow ? 75 : this.barrelRollTimer > 0 ? 70 : isOverdrive ? 67 : 62,
+      isAfterburnerNow ? 75 : this.barrelRollTimer > 0 ? 70 : isOverdrive ? 67 : 62 + bossFrame * 3.0,
       62 + b * 6
     );
     if (Math.abs(this.camera.fov - targetFov) > 0.05) {
-      this.camera.fov = THREE.MathUtils.damp(this.camera.fov, targetFov, 7, dt);
+      this.camera.fov = THREE.MathUtils.damp(this.camera.fov, targetFov, 6.5, dt);
       this.camera.updateProjectionMatrix();
     }
 
     const theta = b * Math.PI;
-    const orbitZ = THREE.MathUtils.lerp(10.6, 14.2, b);
+    const orbitZ = THREE.MathUtils.lerp(10.6 + bossFrame * 1.25, 14.2, b);
     const targetCamX = this.shipX * THREE.MathUtils.lerp(0.62, 0.48, b) + Math.sin(theta) * 13.5;
-    const targetCamY = this.shipY * 0.45 + THREE.MathUtils.lerp(3.1, 2.5, b) + Math.sin(theta) * 1.5;
+    const targetCamY = this.shipY * 0.45 + THREE.MathUtils.lerp(3.1 + bossFrame * 0.35, 2.5, b) + Math.sin(theta) * 1.5;
     const targetCamZ = this.shipZ + Math.cos(theta) * orbitZ;
     const lookX = this.shipX * THREE.MathUtils.lerp(0.42, 0.55, b);
-    const lookY = this.shipY * 0.35 + THREE.MathUtils.lerp(-0.3, 0.25, b);
+    const lookY = this.shipY * 0.35 + THREE.MathUtils.lerp(-0.3 + bossFrame * 0.45, 0.25, b);
     const lookZ = this.shipZ - Math.cos(theta) * 24;
 
     this.camera.position.x = THREE.MathUtils.damp(this.camera.position.x, targetCamX, 6.5, dt) + shakeX;
     this.camera.position.y = THREE.MathUtils.damp(this.camera.position.y, targetCamY, 6.5, dt) + shakeY;
-    this.camera.position.z = targetCamZ;
-    this.camera.lookAt(lookX, lookY, lookZ);
+    this.camera.position.z = THREE.MathUtils.damp(this.camera.position.z, targetCamZ, 8.5, dt);
+    this.camLookX = THREE.MathUtils.damp(this.camLookX, lookX, 8.5, dt);
+    this.camLookY = THREE.MathUtils.damp(this.camLookY, lookY, 8.5, dt);
+    this.camLookZ = THREE.MathUtils.damp(this.camLookZ, lookZ, 8.5, dt);
+    this.camera.lookAt(this.camLookX, this.camLookY, this.camLookZ);
   }
 
   private activateAfterburner(): void {
@@ -1651,11 +1779,17 @@ export class SpaceShooterEngine {
     this.specialActiveTimer = jet.specialDuration;
     this.audio.playSpecialAbility(this.jetId);
     this.showBanner(`${jet.specialName} ACTIVATED`, 1.8);
+    this.spawnExplosion(this.shipX, this.shipY, this.shipZ + 0.5, 14, jet.accentHex, 12);
 
-    if (this.jetId === 'phantom') {
-      // EMP Shockwave: clear all enemy bolts & bombs, damage all active enemies
-      this.empRingMesh.position.set(this.shipX, this.shipY, -1);
+    if (this.jetId === 'vanguard') {
+      this.shield = Math.min(this.maxShield, this.shield + 20);
+      this.cameraShake = Math.max(this.cameraShake, 0.25);
+    } else if (this.jetId === 'phantom') {
+      // EMP Ghost Cloak: clear all enemy bolts & bombs, damage hostiles, grant 3s invulnerability
+      this.invulnTimer = Math.max(this.invulnTimer, jet.specialDuration);
+      this.empRingMesh.position.set(this.shipX, this.shipY, this.shipZ - 1);
       this.empRingMesh.scale.setScalar(1);
+      (this.empRingMesh.material as THREE.MeshBasicMaterial).color.setHex(0x38bdf8);
       this.empRingMesh.visible = true;
       this.empRingTimer = 0.55;
 
@@ -1674,51 +1808,59 @@ export class SpaceShooterEngine {
 
       for (let i = this.enemies.length - 1; i >= 0; i--) {
         const e = this.enemies[i];
-        this.damageEnemy(i, 12 * this.baseDamageMult, e.x, e.y, e.z);
+        this.damageEnemy(i, 18 * this.baseDamageMult, e.x, e.y, e.z);
       }
       this.cameraShake = Math.max(this.cameraShake, 0.35);
     } else if (this.jetId === 'valkyrie') {
-      for (let k = 0; k < 8; k++) {
-        const angle = ((k - 3.5) / 3.5) * 1.1;
+      this.shield = Math.min(this.maxShield, this.shield + 25);
+      for (let k = 0; k < 12; k++) {
+        const angle = ((k - 5.5) / 5.5) * 1.25;
+        const target = this.enemies.length > 0 ? this.enemies[k % this.enemies.length] : null;
         this.spawnPlayerBolt(
-          this.shipX + Math.sin(angle) * 1.6,
-          this.shipY + 0.3,
+          this.shipX + Math.sin(angle) * 1.8,
+          this.shipY + 0.3 + (k % 2 === 0 ? 0.2 : -0.15),
           this.shipZ - 1.4,
-          Math.sin(angle) * 26,
-          Math.cos(angle) * 6,
-          -98,
-          3.2 * this.baseDamageMult,
+          Math.sin(angle) * 28,
+          Math.cos(angle) * 7,
+          -102,
+          3.6 * this.baseDamageMult,
           true,
           true,
           0xfb7185,
-          1.6,
-          true
+          1.7,
+          true,
+          target ? target.id : null
         );
       }
+      this.cameraShake = Math.max(this.cameraShake, 0.32);
     } else if (this.jetId === 'chrono') {
       this.invulnTimer = Math.max(this.invulnTimer, jet.specialDuration);
-      this.shield = Math.min(this.maxShield, this.shield + 35);
+      this.shield = Math.min(this.maxShield, this.shield + 50);
     } else if (this.jetId === 'cyber_kitsune') {
-      // 6 sweeping pink cyber-katana slashes + phase invulnerability
-      this.invulnTimer = Math.max(this.invulnTimer, 2.5);
-      for (let k = 0; k < 6; k++) {
-        const spread = ((k - 2.5) / 2.5) * 22;
+      // 8 piercing pink cyber-katana slashes + 3s phase invulnerability + foxfire seekers
+      this.invulnTimer = Math.max(this.invulnTimer, jet.specialDuration);
+      this.kitsuneFoxfireTimer = 0;
+      for (let k = 0; k < 8; k++) {
+        const spread = ((k - 3.5) / 3.5) * 26;
         this.spawnPlayerBolt(
-          this.shipX + (k - 2.5) * 0.9,
+          this.shipX + (k - 3.5) * 0.85,
           this.shipY + 0.25,
           this.shipZ - 1.6,
           spread,
           0,
-          -135,
-          4.2 * this.baseDamageMult,
+          -140,
+          4.6 * this.baseDamageMult,
           false,
           true,
           0xff2e93,
-          1.85
+          1.9
         );
       }
+      this.cameraShake = Math.max(this.cameraShake, 0.28);
+    } else if (this.jetId === 'ronin_x') {
+      this.cameraShake = Math.max(this.cameraShake, 0.28);
     } else if (this.jetId === 'netrunner') {
-      // Data Virus Swarm: freezes enemies, clears enemy bombs, deals shock damage
+      // Data Siphon Swarm: freezes enemies, clears enemy bolts & bombs, deals shock damage & siphons shield
       this.dataVirusTimer = jet.specialDuration;
       this.empRingMesh.position.set(this.shipX, this.shipY, this.shipZ - 1);
       this.empRingMesh.scale.setScalar(1);
@@ -1726,19 +1868,33 @@ export class SpaceShooterEngine {
       this.empRingMesh.visible = true;
       this.empRingTimer = 0.55;
 
+      for (const b of this.enemyBolts) {
+        if (b.active) {
+          b.active = false;
+          b.mesh.visible = false;
+        }
+      }
       for (const bomb of this.enemyBombs) {
         this.spawnExplosion(bomb.x, bomb.y, bomb.z, 10, 0x22d3ee, 12);
         this.scene.remove(bomb.mesh);
         disposeObjectTree(bomb.mesh);
       }
       this.enemyBombs = [];
+      let siphonedShield = 0;
       for (let i = this.enemies.length - 1; i >= 0; i--) {
         const e = this.enemies[i];
-        this.damageEnemy(i, 9 * this.baseDamageMult, e.x, e.y, e.z);
+        siphonedShield = Math.min(40, siphonedShield + 8);
+        this.damageEnemy(i, 12 * this.baseDamageMult, e.x, e.y, e.z);
       }
+      if (siphonedShield > 0) {
+        this.shield = Math.min(this.maxShield, this.shield + siphonedShield);
+      }
+      this.cameraShake = Math.max(this.cameraShake, 0.3);
     } else if (this.jetId === 'shogun_mk9') {
-      this.shield = Math.min(this.maxShield, this.shield + 25);
+      this.shield = Math.min(this.maxShield, this.shield + 40);
+      this.invulnTimer = Math.max(this.invulnTimer, 2.0);
       this.shogunDroneTimer = 0;
+      this.cameraShake = Math.max(this.cameraShake, 0.26);
     }
   }
 
@@ -1783,13 +1939,19 @@ export class SpaceShooterEngine {
   private firePlayerWeapons(): void {
     const isVanguardOverdrive = this.jetId === 'vanguard' && this.specialActiveTimer > 0;
     const isRoninOverload = this.jetId === 'ronin_x' && this.specialActiveTimer > 0;
-    const tier = Math.min(5, this.laserLevel + (isVanguardOverdrive || isRoninOverload ? 1 : 0));
-    const dmg = this.baseDamageMult * (isRoninOverload ? 2.4 : isVanguardOverdrive ? 1.35 : 1.0);
+    const isValkyrieSiege = this.jetId === 'valkyrie' && this.specialActiveTimer > 0;
+    const isChronoBoost = this.jetId === 'chrono' && this.specialActiveTimer > 0;
+    const tier = Math.min(5, this.laserLevel + (isVanguardOverdrive || isRoninOverload || isValkyrieSiege ? 1 : 0));
+    const dmg =
+      this.baseDamageMult *
+      (isRoninOverload ? 2.6 : isValkyrieSiege ? 1.4 : isVanguardOverdrive ? 1.35 : 1.0);
 
     let cooldown = 0.135;
     if (this.weaponPattern === 'stream') cooldown = 0.085;
     else if (this.weaponPattern === 'plasma') cooldown = 0.17;
-    if (isVanguardOverdrive) cooldown *= 0.62;
+    if (isVanguardOverdrive) cooldown *= 0.56;
+    else if (isChronoBoost) cooldown *= 0.74;
+    else if (isRoninOverload) cooldown *= 0.76;
 
     this.fireCooldown = cooldown;
 
@@ -1888,11 +2050,19 @@ export class SpaceShooterEngine {
       }
     }
 
+    if (isVanguardOverdrive) {
+      this.spawnPlayerBolt(this.shipX - 1.75, this.shipY + 0.12, zOrigin + 0.15, -10, 0, boltSpeed, dmg * 0.72, false, false, 0xd946ef, 1.2);
+      this.spawnPlayerBolt(this.shipX + 1.75, this.shipY + 0.12, zOrigin + 0.15, 10, 0, boltSpeed, dmg * 0.72, false, false, 0xd946ef, 1.2);
+    } else if (isRoninOverload) {
+      this.spawnPlayerBolt(this.shipX - 1.55, this.shipY + 0.18, zOrigin, 0, 0, -160, dmg * 0.75, false, false, 0xa3e635, 1.35);
+      this.spawnPlayerBolt(this.shipX + 1.55, this.shipY + 0.18, zOrigin, 0, 0, -160, dmg * 0.75, false, false, 0xa3e635, 1.35);
+    }
+
     this.leftRecoil = 0.22;
     this.rightRecoil = 0.22;
     (this.playerRig.leftMuzzle.material as THREE.MeshBasicMaterial).opacity = 0.92;
     (this.playerRig.rightMuzzle.material as THREE.MeshBasicMaterial).opacity = 0.92;
-    this.audio.playLaser(isVanguardOverdrive || tier >= 4);
+    this.audio.playLaser(isVanguardOverdrive || isRoninOverload || tier >= 4);
   }
 
   private updateEnemies(dt: number, realDt: number): void {
@@ -1906,15 +2076,18 @@ export class SpaceShooterEngine {
       if (e.ramCooldown > 0) e.ramCooldown = Math.max(0, e.ramCooldown - realDt);
 
       if (e.kind === 'dreadnought' && this.bossChasePhase !== 'none') {
-        // Boss chase pursuit choreography & barrage scheduler
+        // Smooth orbital flyby boss chase choreography & barrage scheduler (zero teleport snaps)
         if (this.bossChasePhase === 'entering') {
           const progress = 1 - Math.max(0, this.bossChaseTimer) / BOSS_CHASE_ENTER_DURATION;
-          const arcX = -Math.sin(progress * Math.PI) * 5.8;
-          const arcY = 1.35 + Math.sin(progress * Math.PI) * 5.2;
-          e.x = THREE.MathUtils.damp(e.x, arcX, 6.5, realDt);
-          e.y = THREE.MathUtils.damp(e.y, arcY, 6.5, realDt);
-          e.z = THREE.MathUtils.damp(e.z, this.shipZ + 30.5, 4.8, realDt);
-          e.rig.group.rotation.y = progress * Math.PI;
+          const smoothP = progress * progress * (3 - 2 * progress);
+          const arcX = -Math.sin(progress * Math.PI) * 14.5;
+          const arcY = THREE.MathUtils.lerp(1.35, 1.15, smoothP) + Math.sin(progress * Math.PI) * 4.4;
+          const arcZ = THREE.MathUtils.lerp(e.targetZ, this.shipZ + 30.5, smoothP);
+          e.x = THREE.MathUtils.damp(e.x, arcX, 8.0, realDt);
+          e.y = THREE.MathUtils.damp(e.y, arcY, 8.0, realDt);
+          e.z = THREE.MathUtils.damp(e.z, arcZ, 8.0, realDt);
+          e.rig.group.rotation.y = smoothP * Math.PI;
+          e.rig.group.rotation.z = Math.sin(progress * Math.PI) * 0.28;
           e.rig.telegraphHalo.visible = false;
         } else if (this.bossChasePhase === 'active') {
           const targetX = THREE.MathUtils.clamp(Math.sin(e.age * 1.15) * 4.8, -this.boundsX * 0.65, this.boundsX * 0.65);
@@ -1927,23 +2100,17 @@ export class SpaceShooterEngine {
           e.rig.group.rotation.z = THREE.MathUtils.clamp((prevX - e.x) * 0.25, -0.35, 0.35);
           this.updateBossChaseBarrage(e, dt);
         } else {
-          // 'exiting': break off backward into deep rear space then snap cleanly back ahead
+          // 'exiting': smooth starboard orbital flyby back to frontal battle station
           const progress = 1 - Math.max(0, this.bossChaseTimer) / BOSS_CHASE_EXIT_DURATION;
-          if (progress < 0.5) {
-            e.z += 56 * realDt;
-            e.y += 4.5 * realDt;
-          } else {
-            if (e.z > 0) {
-              e.z = -90;
-              e.x = 0;
-              e.y = 4.5;
-              e.rig.group.rotation.y = 0;
-            }
-            e.x = THREE.MathUtils.damp(e.x, e.baseX, 4.5, realDt);
-            e.y = THREE.MathUtils.damp(e.y, e.baseY, 4.5, realDt);
-            e.z = THREE.MathUtils.damp(e.z, e.targetZ, 5.2, realDt);
-            e.rig.group.rotation.y = THREE.MathUtils.damp(e.rig.group.rotation.y, 0, 8, realDt);
-          }
+          const smoothP = progress * progress * (3 - 2 * progress);
+          const arcX = THREE.MathUtils.lerp(0, e.baseX, smoothP) + Math.sin(progress * Math.PI) * 15.0;
+          const arcY = THREE.MathUtils.lerp(1.15, e.baseY, smoothP) + Math.sin(progress * Math.PI) * 4.8;
+          const arcZ = THREE.MathUtils.lerp(this.shipZ + 30.5, e.targetZ, smoothP);
+          e.x = THREE.MathUtils.damp(e.x, arcX, 8.0, realDt);
+          e.y = THREE.MathUtils.damp(e.y, arcY, 8.0, realDt);
+          e.z = THREE.MathUtils.damp(e.z, arcZ, 8.0, realDt);
+          e.rig.group.rotation.y = Math.PI * (1 + smoothP);
+          e.rig.group.rotation.z = -Math.sin(progress * Math.PI) * 0.28;
           e.rig.telegraphHalo.visible = false;
         }
 
@@ -1955,7 +2122,7 @@ export class SpaceShooterEngine {
             const mat = m.material as THREE.MeshStandardMaterial;
             if (flashOn) {
               mat.emissive.setHex(0xffffff);
-              mat.emissiveIntensity = 3.2;
+              mat.emissiveIntensity = 1.8;
             } else {
               mat.emissive.copy(e.rig.baseEmissives[idx]);
               mat.emissiveIntensity = e.rig.baseEmissiveIntensities[idx];
@@ -2003,7 +2170,7 @@ export class SpaceShooterEngine {
           const mat = m.material as THREE.MeshStandardMaterial;
           if (flashOn) {
             mat.emissive.setHex(0xffffff);
-            mat.emissiveIntensity = 3.2;
+            mat.emissiveIntensity = 1.8;
           } else {
             mat.emissive.copy(e.rig.baseEmissives[idx]);
             mat.emissiveIntensity = e.rig.baseEmissiveIntensities[idx];
@@ -2088,13 +2255,13 @@ export class SpaceShooterEngine {
           halo.rotation.z += dt * 7;
 
           const coreMat = e.rig.coreMesh.material as THREE.MeshStandardMaterial;
-          coreMat.emissiveIntensity = 4.6 + Math.sin(e.age * 36) * 1.5;
+          coreMat.emissiveIntensity = 2.0 + Math.sin(e.age * 36) * 0.6;
 
           if (e.telegraphTimer <= 0) {
             const chosen = e.pendingAttack;
             e.pendingAttack = 'none';
             halo.visible = false;
-            coreMat.emissiveIntensity = 2.8;
+            coreMat.emissiveIntensity = 1.05;
             this.executeEnemyAttack(e, chosen);
           }
         } else {
@@ -2139,7 +2306,7 @@ export class SpaceShooterEngine {
   }
 
   private canTriggerBossChase(): boolean {
-    return this.wave % 4 === 0;
+    return this.wave % 4 === 0 || this.wave === 30;
   }
 
   private beginBossChase(boss: EnemyActor): void {
@@ -2247,7 +2414,7 @@ export class SpaceShooterEngine {
 
     if (this.chaseSubWaveRemaining > 0) {
       boss.rig.telegraphHalo.visible = false;
-      coreMat.emissiveIntensity = 3.6;
+      coreMat.emissiveIntensity = 1.6;
       this.chaseSubWaveInterval -= dt;
       if (this.chaseSubWaveInterval <= 0) {
         this.fireBossChaseSalvo(boss);
@@ -2272,11 +2439,11 @@ export class SpaceShooterEngine {
       haloMat.opacity = 0.45 + progress * 0.55;
       halo.scale.setScalar(1.8 - progress * 1.0);
       halo.rotation.z += dt * 9;
-      coreMat.emissiveIntensity = 5.2 + Math.sin(boss.age * 40) * 1.6;
+      coreMat.emissiveIntensity = 2.2 + Math.sin(boss.age * 40) * 0.6;
 
       if (this.chaseTelegraphTimer <= 0) {
         halo.visible = false;
-        coreMat.emissiveIntensity = 3.2;
+        coreMat.emissiveIntensity = 1.4;
         const pattern = this.chasePatternIndex % 3;
         this.chaseSubWaveRemaining = pattern === 1 ? 3 : 2;
         this.chaseSubWaveInterval = 0;
@@ -2285,7 +2452,7 @@ export class SpaceShooterEngine {
     }
 
     boss.rig.telegraphHalo.visible = false;
-    coreMat.emissiveIntensity = 2.8;
+    coreMat.emissiveIntensity = 1.05;
     this.chaseBarrageTimer -= dt;
     if (this.chaseBarrageTimer <= 0) {
       const gapChoices = [-6.5, 0, 6.5];
@@ -3265,7 +3432,7 @@ export class SpaceShooterEngine {
   }
 
   private emitHud(): void {
-    const levelCfg = LEVELS[THREE.MathUtils.clamp(this.wave, 1, 20) - 1];
+    const levelCfg = LEVELS[THREE.MathUtils.clamp(this.wave, 1, 30) - 1];
     const jet = JETS[this.jetId];
     let bossName: string | null = null;
     let bossHpRatio = 0;
@@ -3300,7 +3467,7 @@ export class SpaceShooterEngine {
       maxMultiplier: this.maxMultiplier,
       comboTimer: Math.max(0, this.comboTimer / 4.2),
       wave: this.wave,
-      totalLevels: 20,
+      totalLevels: 30,
       waveProgress: this.waveKills,
       waveTotal: this.waveTotal,
       kills: this.kills,

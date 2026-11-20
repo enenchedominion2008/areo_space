@@ -12,10 +12,20 @@ export type JetId =
 
 export type ArenaThemeId =
   | 'emerald_trench'
+  | 'neon_megacity'
   | 'cobalt_tunnel'
+  | 'cryo_prism'
+  | 'biolum_abyss'
   | 'crimson_magma'
+  | 'hyperion_foundry'
+  | 'quantum_grid'
+  | 'synthwave_horizon'
   | 'violet_void'
-  | 'obsidian_citadel';
+  | 'astral_helix'
+  | 'solar_corona'
+  | 'singularity_horizon'
+  | 'obsidian_citadel'
+  | 'zenith_omega';
 
 export type EnemyKind = 'scout' | 'gunship' | 'bomber' | 'dreadnought';
 
@@ -55,7 +65,7 @@ export const JETS: Record<JetId, JetSpec> = {
     shieldBonus: 0,
     damageMult: 1.0,
     specialName: 'HYPER OVERDRIVE',
-    specialDesc: 'Unleashes 2x fire rate + quad overdrive laser burst for 5s.',
+    specialDesc: '2x fire rate, quad overdrive + wing lasers, +25% boost speed & +20 shield for 5s.',
     specialCooldown: 11,
     specialDuration: 5,
   },
@@ -70,10 +80,10 @@ export const JETS: Record<JetId, JetSpec> = {
     hullBonus: -10,
     shieldBonus: 20,
     damageMult: 0.95,
-    specialName: 'EMP SHOCKWAVE',
-    specialDesc: 'Detonates a cyan pulse that clears all enemy bombs/bolts & damages hostiles.',
-    specialCooldown: 13,
-    specialDuration: 1.2,
+    specialName: 'EMP GHOST CLOAK',
+    specialDesc: 'Clears all enemy bolts/bombs, damages hostiles & grants 3s invulnerable speed cloak.',
+    specialCooldown: 12,
+    specialDuration: 3.0,
   },
   valkyrie: {
     id: 'valkyrie',
@@ -86,10 +96,10 @@ export const JETS: Record<JetId, JetSpec> = {
     hullBonus: 35,
     shieldBonus: 15,
     damageMult: 1.2,
-    specialName: 'MISSILE SALVO',
-    specialDesc: 'Launches 8 homing crimson warheads that lock onto active ships & bosses.',
+    specialName: 'SIEGE SALVO',
+    specialDesc: 'Fires 12 homing warheads, restores +25 shield & boosts weapon power +40% for 3.5s.',
     specialCooldown: 10,
-    specialDuration: 1.5,
+    specialDuration: 3.5,
   },
   chrono: {
     id: 'chrono',
@@ -103,8 +113,8 @@ export const JETS: Record<JetId, JetSpec> = {
     shieldBonus: 35,
     damageMult: 1.05,
     specialName: 'AEGIS TIME-FIELD',
-    specialDesc: 'Grants invulnerability, restores +35 shield & slows enemies/bombs by 55% for 5s.',
-    specialCooldown: 14,
+    specialDesc: 'Invulnerability, +50 shield, +35% fire rate & slows enemies/bombs by 60% for 5s.',
+    specialCooldown: 13,
     specialDuration: 5,
   },
   cyber_kitsune: {
@@ -118,10 +128,10 @@ export const JETS: Record<JetId, JetSpec> = {
     hullBonus: 0,
     shieldBonus: 15,
     damageMult: 1.12,
-    specialName: 'NEON BLADE WAVE',
-    specialDesc: 'Slices the lane with 6 piercing pink cyber-slashes & 2.5s phase invulnerability.',
+    specialName: 'FOXFIRE BLADE',
+    specialDesc: '8 piercing cyber-slashes, 3s phase invulnerability, speed boost & foxfire seekers.',
     specialCooldown: 10,
-    specialDuration: 2.5,
+    specialDuration: 3.0,
   },
   ronin_x: {
     id: 'ronin_x',
@@ -134,10 +144,10 @@ export const JETS: Record<JetId, JetSpec> = {
     hullBonus: 15,
     shieldBonus: 0,
     damageMult: 1.18,
-    specialName: 'RAILGUN OVERLOAD',
-    specialDesc: 'Surges weapon output by 2.4x with hyper-velocity acid-lime piercing bolts for 4.5s.',
+    specialName: 'NITRO RAILGUN',
+    specialDesc: '2.6x railgun damage, +30% fire rate, twin rail beams & +25% nitro speed for 5s.',
     specialCooldown: 12,
-    specialDuration: 4.5,
+    specialDuration: 5.0,
   },
   netrunner: {
     id: 'netrunner',
@@ -150,10 +160,10 @@ export const JETS: Record<JetId, JetSpec> = {
     hullBonus: 5,
     shieldBonus: 25,
     damageMult: 1.08,
-    specialName: 'DATA VIRUS SWARM',
-    specialDesc: 'Hacks & freezes all enemies for 3.5s, vaporizing bombs and dealing shock damage.',
-    specialCooldown: 13,
-    specialDuration: 3.5,
+    specialName: 'DATA SIPHON SWARM',
+    specialDesc: 'Freezes enemies 4s, clears bolts/bombs, deals shock damage & siphons up to +40 shield.',
+    specialCooldown: 12,
+    specialDuration: 4.0,
   },
   shogun_mk9: {
     id: 'shogun_mk9',
@@ -166,10 +176,10 @@ export const JETS: Record<JetId, JetSpec> = {
     hullBonus: 40,
     shieldBonus: 30,
     damageMult: 1.25,
-    specialName: 'ORBITAL MATRIX',
-    specialDesc: 'Deploys dual golden cyber-drones firing seeker beams for 6s & restores +25 shield.',
-    specialCooldown: 14,
-    specialDuration: 6,
+    specialName: 'SHOGUN MATRIX',
+    specialDesc: 'Dual golden seeker drones for 6.5s, 2s opening shield barrier & +40 shield restore.',
+    specialCooldown: 13,
+    specialDuration: 6.5,
   },
 };
 
@@ -192,7 +202,7 @@ export const ARENA_THEMES: Record<ArenaThemeId, ArenaTheme> = {
     id: 'emerald_trench',
     name: 'EMERALD CYBER-TRENCH',
     bgHex: 0x02060d,
-    fogDensity: 0.0075,
+    fogDensity: 0.0074,
     gridColor: '#00ff88',
     floorBgColor: '#020b08',
     wireHex: 0x00ff88,
@@ -201,11 +211,24 @@ export const ARENA_THEMES: Record<ArenaThemeId, ArenaTheme> = {
     hasTunnel: false,
     openSpace: false,
   },
+  neon_megacity: {
+    id: 'neon_megacity',
+    name: 'NEON SKYWAY MEGACITY',
+    bgHex: 0x090314,
+    fogDensity: 0.0076,
+    gridColor: '#ff2e93',
+    floorBgColor: '#0e041a',
+    wireHex: 0x22d3ee,
+    cliffColorHex: 0x16092e,
+    cliffEmissiveHex: 0x240a42,
+    hasTunnel: true,
+    openSpace: false,
+  },
   cobalt_tunnel: {
     id: 'cobalt_tunnel',
     name: 'COBALT HYPER-TUNNEL',
     bgHex: 0x020817,
-    fogDensity: 0.008,
+    fogDensity: 0.0078,
     gridColor: '#38bdf8',
     floorBgColor: '#030d1d',
     wireHex: 0x38bdf8,
@@ -214,11 +237,37 @@ export const ARENA_THEMES: Record<ArenaThemeId, ArenaTheme> = {
     hasTunnel: true,
     openSpace: false,
   },
+  cryo_prism: {
+    id: 'cryo_prism',
+    name: 'CRYO PRISM GLACIER',
+    bgHex: 0x031018,
+    fogDensity: 0.0068,
+    gridColor: '#67e8f9',
+    floorBgColor: '#051924',
+    wireHex: 0xa5f3fc,
+    cliffColorHex: 0x0c3447,
+    cliffEmissiveHex: 0x0e475e,
+    hasTunnel: false,
+    openSpace: false,
+  },
+  biolum_abyss: {
+    id: 'biolum_abyss',
+    name: 'BIOLUMINESCENT ABYSS',
+    bgHex: 0x020b14,
+    fogDensity: 0.007,
+    gridColor: '#2dd4bf',
+    floorBgColor: '#03131e',
+    wireHex: 0x5eead4,
+    cliffColorHex: 0x082a3b,
+    cliffEmissiveHex: 0x083b45,
+    hasTunnel: false,
+    openSpace: false,
+  },
   crimson_magma: {
     id: 'crimson_magma',
     name: 'CRIMSON MAGMA RIFT',
     bgHex: 0x120305,
-    fogDensity: 0.0078,
+    fogDensity: 0.0076,
     gridColor: '#ff5522',
     floorBgColor: '#190504',
     wireHex: 0xff6b35,
@@ -227,11 +276,50 @@ export const ARENA_THEMES: Record<ArenaThemeId, ArenaTheme> = {
     hasTunnel: false,
     openSpace: false,
   },
+  hyperion_foundry: {
+    id: 'hyperion_foundry',
+    name: 'HYPERION ORBITAL FOUNDRY',
+    bgHex: 0x100804,
+    fogDensity: 0.0075,
+    gridColor: '#f59e0b',
+    floorBgColor: '#180c05',
+    wireHex: 0xfb923c,
+    cliffColorHex: 0x2d1a0b,
+    cliffEmissiveHex: 0x3d1f07,
+    hasTunnel: true,
+    openSpace: false,
+  },
+  quantum_grid: {
+    id: 'quantum_grid',
+    name: 'QUANTUM MATRIX GRID',
+    bgHex: 0x030c12,
+    fogDensity: 0.0066,
+    gridColor: '#2dd4bf',
+    floorBgColor: '#03121a',
+    wireHex: 0xa3e635,
+    cliffColorHex: 0x09242d,
+    cliffEmissiveHex: 0x0a3336,
+    hasTunnel: true,
+    openSpace: false,
+  },
+  synthwave_horizon: {
+    id: 'synthwave_horizon',
+    name: 'SYNTHWAVE RETRO HORIZON',
+    bgHex: 0x130318,
+    fogDensity: 0.0068,
+    gridColor: '#f472b6',
+    floorBgColor: '#1b0524',
+    wireHex: 0x38bdf8,
+    cliffColorHex: 0x2a0938,
+    cliffEmissiveHex: 0x3a0c4a,
+    hasTunnel: false,
+    openSpace: false,
+  },
   violet_void: {
     id: 'violet_void',
     name: 'VIOLET VOID NEBULA',
     bgHex: 0x090214,
-    fogDensity: 0.0068,
+    fogDensity: 0.0065,
     gridColor: '#d946ef',
     floorBgColor: '#0f031f',
     wireHex: 0xe879f9,
@@ -240,11 +328,50 @@ export const ARENA_THEMES: Record<ArenaThemeId, ArenaTheme> = {
     hasTunnel: false,
     openSpace: true,
   },
+  astral_helix: {
+    id: 'astral_helix',
+    name: 'ASTRAL HELIX CORRIDOR',
+    bgHex: 0x04071a,
+    fogDensity: 0.0066,
+    gridColor: '#818cf8',
+    floorBgColor: '#070c26',
+    wireHex: 0xfbbf24,
+    cliffColorHex: 0x111942,
+    cliffEmissiveHex: 0x162052,
+    hasTunnel: true,
+    openSpace: false,
+  },
+  solar_corona: {
+    id: 'solar_corona',
+    name: 'SOLAR CORONA FURNACE',
+    bgHex: 0x140902,
+    fogDensity: 0.0072,
+    gridColor: '#fb923c',
+    floorBgColor: '#1c0b03',
+    wireHex: 0xfacc15,
+    cliffColorHex: 0x3b1806,
+    cliffEmissiveHex: 0x4f2104,
+    hasTunnel: false,
+    openSpace: false,
+  },
+  singularity_horizon: {
+    id: 'singularity_horizon',
+    name: 'SINGULARITY EVENT HORIZON',
+    bgHex: 0x07010f,
+    fogDensity: 0.0064,
+    gridColor: '#f43f5e',
+    floorBgColor: '#0c0214',
+    wireHex: 0xfb7185,
+    cliffColorHex: 0x1e0726,
+    cliffEmissiveHex: 0x2b082e,
+    hasTunnel: false,
+    openSpace: true,
+  },
   obsidian_citadel: {
     id: 'obsidian_citadel',
     name: 'OBSIDIAN GOLD CITADEL',
     bgHex: 0x090804,
-    fogDensity: 0.0072,
+    fogDensity: 0.007,
     gridColor: '#fbbf24',
     floorBgColor: '#120e04',
     wireHex: 0xfbbf24,
@@ -252,6 +379,19 @@ export const ARENA_THEMES: Record<ArenaThemeId, ArenaTheme> = {
     cliffEmissiveHex: 0x382806,
     hasTunnel: true,
     openSpace: false,
+  },
+  zenith_omega: {
+    id: 'zenith_omega',
+    name: 'ZENITH OMEGA NEXUS',
+    bgHex: 0x040b14,
+    fogDensity: 0.0062,
+    gridColor: '#67e8f9',
+    floorBgColor: '#071422',
+    wireHex: 0xe2e8f0,
+    cliffColorHex: 0x13263d,
+    cliffEmissiveHex: 0x17354f,
+    hasTunnel: true,
+    openSpace: true,
   },
 };
 
@@ -267,10 +407,20 @@ export interface LevelConfig {
 
 const ARENA_ORDER: ArenaThemeId[] = [
   'emerald_trench',
+  'neon_megacity',
   'cobalt_tunnel',
+  'cryo_prism',
+  'biolum_abyss',
   'crimson_magma',
+  'hyperion_foundry',
+  'quantum_grid',
+  'synthwave_horizon',
   'violet_void',
+  'astral_helix',
+  'solar_corona',
+  'singularity_horizon',
   'obsidian_citadel',
+  'zenith_omega',
 ];
 
 const BOSS_NAMES: string[] = [
@@ -282,31 +432,42 @@ const BOSS_NAMES: string[] = [
   'HYPERION TWIN-BOOM',
   'TEMPEST DREADNOUGHT',
   'SUBSPACE LEVIATHAN',
+  'ABYSSAL BIOLITH',
+  'LEVIATHAN PELAGIC',
   'MAGMA FORGE TITAN',
   'INFERNO BOMBARDIER',
-  'SCORCHED HYDRA',
-  'VOLCANIC COLOSSUS',
+  'FOUNDRY BEHEMOTH',
+  'SMELTER COLOSSUS',
+  'QUANTUM SENTINEL',
+  'MATRIX VECTOR CORE',
+  'NEON SUN HARBINGER',
+  'RETRO APEX PHANTOM',
   'VOID HARBINGER',
   'NEBULA PHANTOM CORE',
-  'STAR-EATER CARRIER',
-  'ABYSSAL SOVEREIGN',
-  'CITADEL SENTINEL',
-  'AURIC WARLORD',
-  'SOLAR APEX CRUISER',
-  'OMEGA CITADEL OVERLORD',
+  'HELIX ARCHON CARRIER',
+  'ASTRAL SERAPHIM',
+  'CORONA SOLARIS',
+  'DYSON FLARE TITAN',
+  'EVENT HORIZON MAW',
+  'SINGULARITY REAPER',
+  'CITADEL WARLORD',
+  'AURIC DREADNOUGHT',
+  'ZENITH NEXUS GATEKEEPER',
+  'OMEGA ZENITH SOVEREIGN',
 ];
 
-export const LEVELS: LevelConfig[] = Array.from({ length: 20 }, (_, idx) => {
+export const LEVELS: LevelConfig[] = Array.from({ length: 30 }, (_, idx) => {
   const level = idx + 1;
-  const arena = ARENA_ORDER[Math.floor(idx / 4) % ARENA_ORDER.length];
+  const arenaIdx = Math.floor(idx / 2) % ARENA_ORDER.length;
+  const arena = ARENA_ORDER[arenaIdx];
   return {
     level,
     arena,
-    title: `SECTOR ${Math.floor(idx / 4) + 1}-${(idx % 4) + 1}`,
+    title: `SECTOR ${arenaIdx + 1}-${(idx % 2) + 1}`,
     bossTitle: BOSS_NAMES[idx],
-    squadCount: 5 + Math.floor(level * 1.1),
-    bossHp: Math.round(44 + level * 14 + (level === 20 ? 80 : 0)),
-    scrollSpeed: 40 + level * 1.5,
+    squadCount: 5 + Math.floor(level * 0.95),
+    bossHp: Math.round(44 + level * 14 + (level === 30 ? 110 : 0)),
+    scrollSpeed: 40 + level * 1.25,
   };
 });
 
@@ -326,7 +487,7 @@ export interface HudSnapshot {
   multiplier: number;
   maxMultiplier: number;
   comboTimer: number;
-  wave: number; // 1..20 level
+  wave: number; // 1..30 level
   totalLevels: number;
   waveProgress: number;
   waveTotal: number;
