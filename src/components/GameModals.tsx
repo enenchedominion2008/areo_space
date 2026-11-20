@@ -16,6 +16,7 @@ import {
   Plane,
   Download,
   Award,
+  BookOpen,
 } from 'lucide-react';
 import { JETS, type BackendState, type GamePhase, type HudSnapshot, type JetId, type SaveSlotRecord } from '../game/types';
 import { usePWAInstall } from '../hooks/usePWAInstall';
@@ -39,6 +40,8 @@ interface GameModalsProps {
   onUpdatePilotName: (name: string) => void;
   onReviveWithCredits: () => void;
   onReturnToTitle: () => void;
+  onOpenTutorials: () => void;
+  suppressPauseModal?: boolean;
 }
 
 export const GameModals: React.FC<GameModalsProps> = ({
@@ -60,6 +63,8 @@ export const GameModals: React.FC<GameModalsProps> = ({
   onUpdatePilotName,
   onReviveWithCredits,
   onReturnToTitle,
+  onOpenTutorials,
+  suppressPauseModal = false,
 }) => {
   const [pilotDraft, setPilotDraft] = useState(backendState?.profile.pilot_name || 'VANGUARD-01');
   const [showIOSGuide, setShowIOSGuide] = useState(false);
@@ -494,6 +499,14 @@ export const GameModals: React.FC<GameModalsProps> = ({
               <Trophy className="w-3.5 h-3.5 text-fuchsia-300" />
               <span>Leaderboard</span>
             </button>
+            <button
+              type="button"
+              onClick={onOpenTutorials}
+              className="px-3.5 py-2 bg-[#040b14]/90 hover:border-sky-400 border border-sky-400/50 text-sky-200 text-xs font-semibold uppercase tracking-wider rounded-sm flex items-center gap-1.5"
+            >
+              <BookOpen className="w-3.5 h-3.5 text-sky-300" />
+              <span>Tutorials</span>
+            </button>
           </div>
         </div>
 
@@ -525,6 +538,7 @@ export const GameModals: React.FC<GameModalsProps> = ({
 
   // Pause Modal
   if (phase === 'paused') {
+    if (suppressPauseModal) return null;
     return (
       <div className="fixed inset-0 z-20 flex items-center justify-center p-4 bg-[#02060d]/78 font-mono">
         <div className="w-full max-w-md bg-[#06101b] border border-emerald-400/50 p-6 rounded-sm shadow-[0_0_35px_rgba(0,255,136,0.18)] space-y-5">
@@ -543,6 +557,15 @@ export const GameModals: React.FC<GameModalsProps> = ({
             >
               <Play className="w-4 h-4 fill-current" />
               <span>Resume Flight</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={onOpenTutorials}
+              className="w-full py-2.5 bg-sky-500/20 hover:bg-sky-500/35 border border-sky-400/70 text-sky-100 font-bold text-xs tracking-[0.18em] uppercase rounded-sm flex items-center justify-center gap-2"
+            >
+              <BookOpen className="w-4 h-4 text-sky-300" />
+              <span>Tutorials</span>
             </button>
 
             <button

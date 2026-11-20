@@ -11,7 +11,9 @@ import {
 } from './api/saveClient';
 import { GameHud } from './components/GameHud';
 import { GameModals } from './components/GameModals';
+import { TutorialOverlay } from './components/TutorialOverlay';
 import { SpaceShooterEngine } from './game/engine';
+import { TUTORIAL_STEPS, type TutorialStepId } from './game/tutorial';
 import type { BackendState, GameCheckpointPayload, HudSnapshot, JetId, SaveSlotRecord } from './game/types';
 
 const INITIAL_HUD: HudSnapshot = {
@@ -92,6 +94,8 @@ export default function App() {
   const [lastRunCredits, setLastRunCredits] = useState<number | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'none' | 'slots' | 'hangar' | 'leaderboard'>('none');
+  const [tutorialMode, setTutorialMode] = useState<'inactive' | 'paused_step' | 'live_play'>('inactive');
+  const [tutorialStepIndex, setTutorialStepIndex] = useState(0);
   const [showIntroVideo, setShowIntroVideo] = useState(() => !detectTouchDevice());
 
   const handleSkipIntro = useCallback(() => setShowIntroVideo(false), []);
@@ -201,6 +205,67 @@ export default function App() {
     engineRef.current?.setPaused(true);
   }, []);
 
+  const handleOpenTutorials = useCallback(() => {
+    const phase = engineRef.current?.getPhase();
+    if (phase === 'title' || phase === 'gameover' || phase === 'victory') {
+      enterMobileLandscape();
+      setLastRunCredits(null);
+      setActiveTab('none');
+      engineRef.current?.startNewGame(backendStateRef.current?.profile, 1);
+    }
+    const firstStep = TUTORIAL_STEPS[0];
+    setTutorialStepIndex(0);
+    setTutorialMode('paused_step');
+    engineRef.current?.setPaused(true);
+    engineRef.current?.prepareTutorialStep(firstStep.id);
+  }, []);
+
+  const handleSkipTutorials = useCallback(() => {
+    setTutorialMode('inactive');
+    engineRef.current?.setPaused(false);
+    showToast('GAMEPLAY RESUMED');
+  }, [showToast]);
+
+  const beginLiveTutorialPlay = useCallback((stepId: TutorialStepId) => {
+    engineRef.current?.setPaused(false, true);
+    if (stepId === 'roll') engineRef.current?.triggerBarrelRoll();
+    if (stepId === 'afterburner') engineRef.current?.triggerAfterburner();
+    if (stepId === 'missile') engineRef.current?.triggerMissileBarrage();
+    if (stepId === 'shield_pulse') engineRef.current?.triggerShieldPulse();
+    if (stepId === 'special') {
+      engineRef.current?.triggerSpecial();
+      engineRef.current?.spawnTutorialFragment();
+    }
+    setTutorialMode('live_play');
+  }, []);
+
+  // Advance automatically from short live gameplay windows to the next short pause (or resume normal gameplay at the end)
+  useEffect(() => {
+    if (tutorialMode !== 'live_play') return;
+    const step = TUTORIAL_STEPS[tutorialStepIndex];
+    const timer = window.setTimeout(() => {
+      if (tutorialStepIndex + 1 < TUTORIAL_STEPS.length) {
+        const nextIdx = tutorialStepIndex + 1;
+        const nextStep = TUTORIAL_STEPS[nextIdx];
+        setTutorialStepIndex(nextIdx);
+        engineRef.current?.setPaused(true);
+        engineRef.current?.prepareTutorialStep(nextStep.id);
+        setTutorialMode('paused_step');
+      } else {
+        setTutorialMode('inactive');
+        showToast('TUTORIAL COMPLETE · GAMEPLAY RESUMED');
+      }
+    }, step.liveDurationMs);
+    return () => window.clearTimeout(timer);
+  }, [tutorialMode, tutorialStepIndex, showToast]);
+
+  // Cancel tutorial cleanly if match ends or returns to title
+  useEffect(() => {
+    if (tutorialMode !== 'inactive' && (hud.phase === 'gameover' || hud.phase === 'victory' || hud.phase === 'title')) {
+      setTutorialMode('inactive');
+    }
+  }, [hud.phase, tutorialMode]);
+
   const handleToggleMute = useCallback(() => {
     if (!engineRef.current) return;
     const next = engineRef.current.audio.toggleMute();
@@ -211,29 +276,57 @@ export default function App() {
     setTouchMode((prev) => !prev);
   }, []);
 
+  const currentTutorialStep = TUTORIAL_STEPS[tutorialStepIndex] ?? TUTORIAL_STEPS[0];
+
   const handleTriggerSpecial = useCallback(() => {
+    if (tutorialMode === 'paused_step' && currentTutorialStep.id === 'special') {
+      beginLiveTutorialPlay('special');
+      return;
+    }
     engineRef.current?.triggerSpecial();
-  }, []);
+  }, [beginLiveTutorialPlay, currentTutorialStep.id, tutorialMode]);
 
   const handleTriggerAfterburner = useCallback(() => {
+    if (tutorialMode === 'paused_step' && currentTutorialStep.id === 'afterburner') {
+      beginLiveTutorialPlay('afterburner');
+      return;
+    }
     engineRef.current?.triggerAfterburner();
-  }, []);
+  }, [beginLiveTutorialPlay, currentTutorialStep.id, tutorialMode]);
 
   const handleTriggerMissileBarrage = useCallback(() => {
+    if (tutorialMode === 'paused_step' && currentTutorialStep.id === 'missile') {
+      beginLiveTutorialPlay('missile');
+      return;
+    }
     engineRef.current?.triggerMissileBarrage();
-  }, []);
+  }, [beginLiveTutorialPlay, currentTutorialStep.id, tutorialMode]);
 
   const handleTriggerShieldPulse = useCallback(() => {
+    if (tutorialMode === 'paused_step' && currentTutorialStep.id === 'shield_pulse') {
+      beginLiveTutorialPlay('shield_pulse');
+      return;
+    }
     engineRef.current?.triggerShieldPulse();
-  }, []);
+  }, [beginLiveTutorialPlay, currentTutorialStep.id, tutorialMode]);
 
   const handleTriggerBarrelRoll = useCallback(() => {
+    if (tutorialMode === 'paused_step' && currentTutorialStep.id === 'roll') {
+      beginLiveTutorialPlay('roll');
+      return;
+    }
     engineRef.current?.triggerBarrelRoll();
-  }, []);
+  }, [beginLiveTutorialPlay, currentTutorialStep.id, tutorialMode]);
 
-  const handleTouchSteer = useCallback((nx: number, ny: number) => {
-    engineRef.current?.setTouchSteer(nx, ny);
-  }, []);
+  const handleTouchSteer = useCallback(
+    (nx: number, ny: number) => {
+      if (tutorialMode === 'paused_step' && currentTutorialStep.id === 'move' && (Math.abs(nx) > 0.25 || Math.abs(ny) > 0.25)) {
+        beginLiveTutorialPlay('move');
+      }
+      engineRef.current?.setTouchSteer(nx, ny);
+    },
+    [beginLiveTutorialPlay, currentTutorialStep.id, tutorialMode]
+  );
 
   const handleSaveToSlot = useCallback(
     async (slotId: string) => {
@@ -366,6 +459,40 @@ export default function App() {
         return;
       }
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (tutorialMode !== 'inactive') {
+        if (e.code === 'Escape') {
+          e.preventDefault();
+          handleSkipTutorials();
+          return;
+        }
+        if (tutorialMode === 'paused_step') {
+          const stepId = currentTutorialStep.id;
+          if (
+            stepId === 'move' &&
+            (e.code === 'KeyW' ||
+              e.code === 'KeyA' ||
+              e.code === 'KeyS' ||
+              e.code === 'KeyD' ||
+              e.code === 'ArrowUp' ||
+              e.code === 'ArrowDown' ||
+              e.code === 'ArrowLeft' ||
+              e.code === 'ArrowRight')
+          ) {
+            beginLiveTutorialPlay('move');
+          } else if (stepId === 'roll' && (e.code === 'ShiftLeft' || e.code === 'ShiftRight' || e.code === 'KeyE')) {
+            beginLiveTutorialPlay('roll');
+          } else if (stepId === 'afterburner' && (e.code === 'Space' || e.code === 'KeyF')) {
+            beginLiveTutorialPlay('afterburner');
+          } else if (stepId === 'missile' && e.code === 'KeyR') {
+            beginLiveTutorialPlay('missile');
+          } else if (stepId === 'shield_pulse' && e.code === 'KeyC') {
+            beginLiveTutorialPlay('shield_pulse');
+          } else if (stepId === 'special' && e.code === 'KeyQ') {
+            beginLiveTutorialPlay('special');
+          }
+        }
+        return;
+      }
       if (e.code === 'Escape' || e.code === 'KeyP') {
         if (activeTab !== 'none') {
           setActiveTab('none');
@@ -385,7 +512,16 @@ export default function App() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [activeTab, handleStartNewGame, handleSkipIntro, showIntroVideo]);
+  }, [
+    activeTab,
+    beginLiveTutorialPlay,
+    currentTutorialStep.id,
+    handleSkipTutorials,
+    handleStartNewGame,
+    handleSkipIntro,
+    showIntroVideo,
+    tutorialMode,
+  ]);
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-[#02060d] touch-none">
@@ -413,14 +549,16 @@ export default function App() {
         </div>
       )}
 
-      {hud.phase === 'playing' && (
+      {(hud.phase === 'playing' || tutorialMode !== 'inactive') && (
         <GameHud
           hud={hud}
           muted={muted}
           touchMode={touchMode}
+          tutorialHighlight={tutorialMode === 'paused_step' ? currentTutorialStep.id : null}
           onToggleTouchMode={handleToggleTouchMode}
           onToggleMute={handleToggleMute}
           onPause={handlePause}
+          onOpenTutorials={handleOpenTutorials}
           onTriggerSpecial={handleTriggerSpecial}
           onTriggerAfterburner={handleTriggerAfterburner}
           onTriggerMissileBarrage={handleTriggerMissileBarrage}
@@ -459,7 +597,19 @@ export default function App() {
         onUpdatePilotName={handleUpdatePilotName}
         onReviveWithCredits={handleReviveWithCredits}
         onReturnToTitle={handleReturnToTitle}
+        onOpenTutorials={handleOpenTutorials}
+        suppressPauseModal={tutorialMode !== 'inactive'}
       />
+
+      {tutorialMode !== 'inactive' && (
+        <TutorialOverlay
+          mode={tutorialMode}
+          step={currentTutorialStep}
+          jetId={hud.jetId}
+          onTriggerStepAction={() => beginLiveTutorialPlay(currentTutorialStep.id)}
+          onSkip={handleSkipTutorials}
+        />
+      )}
 
       {toast && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 pointer-events-none px-4 py-2 bg-[#040d17] border border-emerald-400/70 text-emerald-200 font-mono text-xs font-bold tracking-[0.16em] uppercase shadow-[0_0_24px_rgba(0,255,136,0.28)]">

@@ -33,6 +33,7 @@ import {
   type RadarBlip,
   type WeaponPattern,
 } from './types';
+import type { TutorialStepId } from './tutorial';
 
 // Reusable scratch math objects (zero per-frame allocations)
 const _v1 = new THREE.Vector3();
@@ -811,15 +812,41 @@ export class SpaceShooterEngine {
     };
   }
 
-  public setPaused(paused: boolean): void {
+  public setPaused(paused: boolean, preserveHeldKeys = false): void {
     if (this.phase !== 'playing' && this.phase !== 'paused') return;
     this.phase = paused ? 'paused' : 'playing';
-    this.heldKeys.clear();
-    this.pointerActive = false;
-    this.touchSteerX = 0;
-    this.touchSteerY = 0;
+    if (!preserveHeldKeys) {
+      this.heldKeys.clear();
+    }
+    if (paused) {
+      this.pointerActive = false;
+      this.touchSteerX = 0;
+      this.touchSteerY = 0;
+    }
     this.lastTime = performance.now();
     this.emitHud();
+  }
+
+  public prepareTutorialStep(step: TutorialStepId): void {
+    if (step === 'roll') {
+      this.barrelRollCooldown = 0;
+      this.barrelRollTimer = 0;
+    } else if (step === 'afterburner') {
+      this.afterburnerCooldown = 0;
+      this.afterburnerActiveTimer = 0;
+    } else if (step === 'missile') {
+      this.missileCooldown = 0;
+    } else if (step === 'shield_pulse') {
+      this.shieldPulseCooldown = 0;
+    } else if (step === 'special') {
+      this.specialCooldown = 0;
+    }
+    this.emitHud();
+  }
+
+  public spawnTutorialFragment(): void {
+    const kind: FragmentKind = this.weaponPattern === 'spread' ? 'seeker' : 'spread';
+    this.spawnFragment(THREE.MathUtils.clamp(this.shipX, -6.5, 6.5), this.shipY, -44, kind);
   }
 
   public returnToTitle(): void {

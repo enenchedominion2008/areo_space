@@ -11,16 +11,20 @@ import {
   Flame,
   Rocket,
   ShieldPlus,
+  BookOpen,
 } from 'lucide-react';
 import type { HudSnapshot, WeaponPattern } from '../game/types';
+import type { TutorialStepId } from '../game/tutorial';
 
 interface GameHudProps {
   hud: HudSnapshot;
   muted: boolean;
   touchMode: boolean;
+  tutorialHighlight?: TutorialStepId | null;
   onToggleTouchMode: () => void;
   onToggleMute: () => void;
   onPause: () => void;
+  onOpenTutorials: () => void;
   onTriggerSpecial: () => void;
   onTriggerAfterburner: () => void;
   onTriggerMissileBarrage: () => void;
@@ -41,9 +45,11 @@ export const GameHud: React.FC<GameHudProps> = ({
   hud,
   muted,
   touchMode,
+  tutorialHighlight = null,
   onToggleTouchMode,
   onToggleMute,
   onPause,
+  onOpenTutorials,
   onTriggerSpecial,
   onTriggerAfterburner,
   onTriggerMissileBarrage,
@@ -126,8 +132,11 @@ export const GameHud: React.FC<GameHudProps> = ({
     onTouchSteer(kx / maxRadius, -ky / maxRadius);
   };
 
+  const spotlightClass =
+    'ring-4 ring-amber-300 shadow-[0_0_26px_rgba(251,191,36,0.95)] scale-110 z-30 animate-pulse';
+
   return (
-    <div className="fixed inset-0 pointer-events-none z-10 flex flex-col justify-between p-2.5 sm:p-4 font-mono select-none">
+    <div className="fixed inset-0 pointer-events-none z-20 flex flex-col justify-between p-2.5 sm:p-4 font-mono select-none">
       {hud.hitFlash > 0.03 && (
         <div
           className="fixed inset-0 pointer-events-none"
@@ -226,6 +235,16 @@ export const GameHud: React.FC<GameHudProps> = ({
 
               <button
                 type="button"
+                onClick={onOpenTutorials}
+                title="How to Play & Power-Ups"
+                className="px-2 py-1.5 bg-[#040b14]/80 border border-sky-400/50 hover:bg-sky-500/20 text-sky-200 text-[10px] font-semibold tracking-wider uppercase rounded-sm flex items-center gap-1 transition-colors"
+              >
+                <BookOpen className="w-3 h-3" />
+                <span>Tutorials</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={onPause}
                 title="Pause & Save Checkpoint (Esc)"
                 className="px-2 py-1.5 bg-[#040b14]/80 border border-emerald-400/40 hover:bg-emerald-500/20 text-emerald-200 text-[10px] font-semibold tracking-wider uppercase rounded-sm flex items-center gap-1 transition-colors"
@@ -266,7 +285,23 @@ export const GameHud: React.FC<GameHudProps> = ({
       <div className="flex items-end justify-between gap-2">
         {/* Bottom-Left: Compact Shield/Hull Bars + Optional Virtual Joystick */}
         <div className="flex flex-col items-start gap-2">
-          <div className="w-36 sm:w-52 bg-[#040b14]/80 border border-sky-400/30 px-2.5 py-2 rounded-sm">
+          <div
+            className={`w-36 sm:w-52 bg-[#040b14]/84 border px-2.5 py-2 rounded-sm transition-all ${
+              tutorialHighlight === 'shield_pulse'
+                ? 'border-amber-300 ring-2 ring-amber-300/90 shadow-[0_0_22px_rgba(251,191,36,0.65)]'
+                : 'border-sky-400/30'
+            }`}
+          >
+            {tutorialHighlight === 'shield_pulse' && (
+              <div className="mb-1 text-[9px] font-bold tracking-[0.12em] text-amber-300 uppercase">
+                ▲ SHIELD BREAKS BEFORE HULL
+              </div>
+            )}
+            {tutorialHighlight === 'move' && !touchMode && (
+              <div className="mb-1 text-[9px] font-bold tracking-[0.12em] text-amber-300 uppercase">
+                ▲ WASD / ARROWS / DRAG · AUTO-FIRE ON
+              </div>
+            )}
             {hud.dangerAlert && (
               <div className="mb-1 text-[9px] font-bold tracking-[0.16em] text-rose-400 uppercase">
                 ▲ LOW HULL
@@ -327,7 +362,11 @@ export const GameHud: React.FC<GameHudProps> = ({
               onPointerMove={handleJoyMove}
               onPointerUp={handleJoyUp}
               onPointerCancel={handleJoyUp}
-              className="pointer-events-auto relative w-24 h-24 sm:w-28 sm:h-28 rounded-full border-2 border-emerald-400/50 bg-[#040d17]/65 flex items-center justify-center touch-none"
+              className={`pointer-events-auto relative w-24 h-24 sm:w-28 sm:h-28 rounded-full border-2 bg-[#040d17]/65 flex items-center justify-center touch-none ${
+                tutorialHighlight === 'move'
+                  ? 'border-amber-300 ring-4 ring-amber-300/90 shadow-[0_0_24px_rgba(251,191,36,0.85)] animate-pulse'
+                  : 'border-emerald-400/50'
+              }`}
             >
               <div className="w-9 h-9 rounded-full border border-emerald-400/30" />
               <div
@@ -345,164 +384,199 @@ export const GameHud: React.FC<GameHudProps> = ({
           {/* Top Tactical Row: Missiles [R], Shield Pulse [C], Roll [SHIFT] */}
           <div className="flex items-center gap-2">
             {/* Homing Missile Barrage */}
-            <button
-              type="button"
-              onPointerDown={(e) => {
-                e.stopPropagation();
-                onTriggerMissileBarrage();
-              }}
-              title="Homing Missile Barrage (R)"
-              className={`relative w-12 h-12 sm:w-14 sm:h-14 rounded-full border-2 flex flex-col items-center justify-center text-[8px] sm:text-[9px] font-bold uppercase tracking-wider touch-none overflow-hidden transition-transform active:scale-95 ${
-                missileReady
-                  ? 'bg-orange-600/35 border-orange-300 text-orange-100 shadow-[0_0_14px_rgba(249,115,22,0.45)] hover:bg-orange-500/45'
-                  : 'bg-[#040b14]/82 border-slate-700 text-slate-400'
-              }`}
-            >
-              <div
-                className="absolute bottom-0 left-0 right-0 bg-orange-500/25 pointer-events-none"
-                style={{ height: `${missilePct}%` }}
-              />
-              <Rocket className={`w-4 h-4 relative z-10 ${missileReady ? 'text-orange-200' : 'text-slate-500'}`} />
-              <span className="relative z-10 leading-none mt-0.5 tabular-nums">
-                {missileReady ? 'MSL' : `${Math.ceil(hud.missileCooldown)}s`}
-              </span>
-              {!touchMode && (
-                <span className="relative z-10 text-[7px] text-orange-200/80 leading-none mt-0.5">[R]</span>
+            <div className="relative flex flex-col items-center">
+              {tutorialHighlight === 'missile' && (
+                <span className="mb-1.5 px-1.5 py-0.5 bg-amber-400 text-[#090600] text-[9px] font-extrabold uppercase tracking-wider rounded-sm whitespace-nowrap shadow">
+                  TAP MSL ▼
+                </span>
               )}
-            </button>
+              <button
+                type="button"
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                  onTriggerMissileBarrage();
+                }}
+                title="Homing Missile Barrage (R)"
+                className={`relative w-12 h-12 sm:w-14 sm:h-14 rounded-full border-2 flex flex-col items-center justify-center text-[8px] sm:text-[9px] font-bold uppercase tracking-wider touch-none overflow-hidden transition-transform active:scale-95 ${
+                  missileReady
+                    ? 'bg-orange-600/35 border-orange-300 text-orange-100 shadow-[0_0_14px_rgba(249,115,22,0.45)] hover:bg-orange-500/45'
+                    : 'bg-[#040b14]/82 border-slate-700 text-slate-400'
+                } ${tutorialHighlight === 'missile' ? spotlightClass : tutorialHighlight ? 'opacity-55' : ''}`}
+              >
+                <div
+                  className="absolute bottom-0 left-0 right-0 bg-orange-500/25 pointer-events-none"
+                  style={{ height: `${missilePct}%` }}
+                />
+                <Rocket className={`w-4 h-4 relative z-10 ${missileReady ? 'text-orange-200' : 'text-slate-500'}`} />
+                <span className="relative z-10 leading-none mt-0.5 tabular-nums">
+                  {missileReady ? 'MSL' : `${Math.ceil(hud.missileCooldown)}s`}
+                </span>
+                {!touchMode && (
+                  <span className="relative z-10 text-[7px] text-orange-200/80 leading-none mt-0.5">[R]</span>
+                )}
+              </button>
+            </div>
 
             {/* Shield Pulse */}
-            <button
-              type="button"
-              onPointerDown={(e) => {
-                e.stopPropagation();
-                onTriggerShieldPulse();
-              }}
-              title="Shield Pulse (C)"
-              className={`relative w-12 h-12 sm:w-14 sm:h-14 rounded-full border-2 flex flex-col items-center justify-center text-[8px] sm:text-[9px] font-bold uppercase tracking-wider touch-none overflow-hidden transition-transform active:scale-95 ${
-                pulseActive
-                  ? 'bg-teal-400/50 border-white text-white shadow-[0_0_18px_rgba(45,212,191,0.75)]'
-                  : pulseReady
-                  ? 'bg-teal-600/35 border-teal-300 text-teal-100 shadow-[0_0_14px_rgba(45,212,191,0.4)] hover:bg-teal-500/45'
-                  : 'bg-[#040b14]/82 border-slate-700 text-slate-400'
-              }`}
-            >
-              <div
-                className="absolute bottom-0 left-0 right-0 bg-teal-400/25 pointer-events-none"
-                style={{ height: `${pulsePct}%` }}
-              />
-              <ShieldPlus
-                className={`w-4 h-4 relative z-10 ${pulseReady || pulseActive ? 'text-teal-200' : 'text-slate-500'}`}
-              />
-              <span className="relative z-10 leading-none mt-0.5 tabular-nums">
-                {pulseActive ? 'ON' : pulseReady ? 'PULSE' : `${Math.ceil(hud.shieldPulseCooldown)}s`}
-              </span>
-              {!touchMode && (
-                <span className="relative z-10 text-[7px] text-teal-200/80 leading-none mt-0.5">[C]</span>
+            <div className="relative flex flex-col items-center">
+              {tutorialHighlight === 'shield_pulse' && (
+                <span className="mb-1.5 px-1.5 py-0.5 bg-amber-400 text-[#090600] text-[9px] font-extrabold uppercase tracking-wider rounded-sm whitespace-nowrap shadow">
+                  TAP PULSE ▼
+                </span>
               )}
-            </button>
+              <button
+                type="button"
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                  onTriggerShieldPulse();
+                }}
+                title="Shield Pulse (C)"
+                className={`relative w-12 h-12 sm:w-14 sm:h-14 rounded-full border-2 flex flex-col items-center justify-center text-[8px] sm:text-[9px] font-bold uppercase tracking-wider touch-none overflow-hidden transition-transform active:scale-95 ${
+                  pulseActive
+                    ? 'bg-teal-400/50 border-white text-white shadow-[0_0_18px_rgba(45,212,191,0.75)]'
+                    : pulseReady
+                    ? 'bg-teal-600/35 border-teal-300 text-teal-100 shadow-[0_0_14px_rgba(45,212,191,0.4)] hover:bg-teal-500/45'
+                    : 'bg-[#040b14]/82 border-slate-700 text-slate-400'
+                } ${tutorialHighlight === 'shield_pulse' ? spotlightClass : tutorialHighlight ? 'opacity-55' : ''}`}
+              >
+                <div
+                  className="absolute bottom-0 left-0 right-0 bg-teal-400/25 pointer-events-none"
+                  style={{ height: `${pulsePct}%` }}
+                />
+                <ShieldPlus
+                  className={`w-4 h-4 relative z-10 ${pulseReady || pulseActive ? 'text-teal-200' : 'text-slate-500'}`}
+                />
+                <span className="relative z-10 leading-none mt-0.5 tabular-nums">
+                  {pulseActive ? 'ON' : pulseReady ? 'PULSE' : `${Math.ceil(hud.shieldPulseCooldown)}s`}
+                </span>
+                {!touchMode && (
+                  <span className="relative z-10 text-[7px] text-teal-200/80 leading-none mt-0.5">[C]</span>
+                )}
+              </button>
+            </div>
 
             {/* Barrel Roll */}
-            <button
-              type="button"
-              onPointerDown={(e) => {
-                e.stopPropagation();
-                onTriggerBarrelRoll();
-              }}
-              title="Barrel Roll Dodge (Shift)"
-              className={`relative w-12 h-12 sm:w-14 sm:h-14 rounded-full border-2 flex flex-col items-center justify-center text-[8px] sm:text-[9px] font-bold uppercase tracking-wider touch-none transition-transform active:scale-95 ${
-                rollReady
-                  ? 'bg-sky-500/30 border-sky-300 text-sky-100 hover:bg-sky-500/45'
-                  : 'bg-[#040b14]/82 border-slate-700 text-slate-400'
-              }`}
-            >
-              <RotateCw className={`w-4 h-4 ${rollReady ? 'text-sky-200' : 'text-slate-500'}`} />
-              <span className="leading-none mt-0.5 tabular-nums">
-                {rollReady ? 'ROLL' : `${hud.barrelRollCooldown.toFixed(1)}`}
-              </span>
-              {!touchMode && (
-                <span className="text-[7px] text-sky-200/80 leading-none mt-0.5">[SHF]</span>
+            <div className="relative flex flex-col items-center">
+              {tutorialHighlight === 'roll' && (
+                <span className="mb-1.5 px-1.5 py-0.5 bg-amber-400 text-[#090600] text-[9px] font-extrabold uppercase tracking-wider rounded-sm whitespace-nowrap shadow">
+                  TAP ROLL ▼
+                </span>
               )}
-            </button>
+              <button
+                type="button"
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                  onTriggerBarrelRoll();
+                }}
+                title="Barrel Roll Dodge (Shift)"
+                className={`relative w-12 h-12 sm:w-14 sm:h-14 rounded-full border-2 flex flex-col items-center justify-center text-[8px] sm:text-[9px] font-bold uppercase tracking-wider touch-none transition-transform active:scale-95 ${
+                  rollReady
+                    ? 'bg-sky-500/30 border-sky-300 text-sky-100 hover:bg-sky-500/45'
+                    : 'bg-[#040b14]/82 border-slate-700 text-slate-400'
+                } ${tutorialHighlight === 'roll' ? spotlightClass : tutorialHighlight ? 'opacity-55' : ''}`}
+              >
+                <RotateCw className={`w-4 h-4 ${rollReady ? 'text-sky-200' : 'text-slate-500'}`} />
+                <span className="leading-none mt-0.5 tabular-nums">
+                  {rollReady ? 'ROLL' : `${hud.barrelRollCooldown.toFixed(1)}`}
+                </span>
+                {!touchMode && (
+                  <span className="text-[7px] text-sky-200/80 leading-none mt-0.5">[SHF]</span>
+                )}
+              </button>
+            </div>
           </div>
 
           {/* Primary Row: Afterburner [SPACE/F] & Jet Special Power [Q] */}
           <div className="flex items-center gap-2.5">
             {/* Afterburner Button */}
-            <button
-              type="button"
-              onPointerDown={(e) => {
-                e.stopPropagation();
-                onTriggerAfterburner();
-              }}
-              title="Afterburner 5s Ram Speed (Space / F)"
-              className={`relative w-16 h-16 sm:w-[70px] sm:h-[70px] rounded-full border-2 flex flex-col items-center justify-center text-[9px] sm:text-[10px] font-extrabold uppercase tracking-wider touch-none overflow-hidden transition-transform active:scale-95 ${
-                afterburnerActive
-                  ? 'bg-cyan-500/55 border-amber-300 text-white shadow-[0_0_24px_rgba(56,189,248,0.8)]'
-                  : afterburnerReady
-                  ? 'bg-sky-600/40 border-cyan-300 text-white shadow-[0_0_18px_rgba(56,189,248,0.5)] hover:bg-sky-500/50'
-                  : 'bg-[#040b14]/84 border-slate-600 text-slate-300'
-              }`}
-            >
-              <div
-                className={`absolute bottom-0 left-0 right-0 pointer-events-none ${
-                  afterburnerActive ? 'bg-amber-400/40' : 'bg-cyan-400/25'
-                }`}
-                style={{ height: `${afterburnerPct}%` }}
-              />
-              <Flame
-                className={`w-5 h-5 relative z-10 ${
-                  afterburnerActive ? 'text-amber-200' : afterburnerReady ? 'text-cyan-200' : 'text-slate-400'
-                }`}
-              />
-              <span className="relative z-10 leading-none mt-0.5 tabular-nums">
-                {afterburnerActive
-                  ? `${hud.afterburnerActiveTimer.toFixed(1)}s`
-                  : afterburnerReady
-                  ? 'BURN'
-                  : `${Math.ceil(hud.afterburnerCooldown)}s`}
-              </span>
-              {!touchMode && (
-                <span className="relative z-10 text-[7px] text-cyan-200/85 leading-none mt-0.5">[SPC]</span>
+            <div className="relative flex flex-col items-center">
+              {tutorialHighlight === 'afterburner' && (
+                <span className="mb-1.5 px-1.5 py-0.5 bg-amber-400 text-[#090600] text-[9px] font-extrabold uppercase tracking-wider rounded-sm whitespace-nowrap shadow">
+                  TAP BURN ▼
+                </span>
               )}
-            </button>
+              <button
+                type="button"
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                  onTriggerAfterburner();
+                }}
+                title="Afterburner 5s Ram Speed (Space / F)"
+                className={`relative w-16 h-16 sm:w-[70px] sm:h-[70px] rounded-full border-2 flex flex-col items-center justify-center text-[9px] sm:text-[10px] font-extrabold uppercase tracking-wider touch-none overflow-hidden transition-transform active:scale-95 ${
+                  afterburnerActive
+                    ? 'bg-cyan-500/55 border-amber-300 text-white shadow-[0_0_24px_rgba(56,189,248,0.8)]'
+                    : afterburnerReady
+                    ? 'bg-sky-600/40 border-cyan-300 text-white shadow-[0_0_18px_rgba(56,189,248,0.5)] hover:bg-sky-500/50'
+                    : 'bg-[#040b14]/84 border-slate-600 text-slate-300'
+                } ${tutorialHighlight === 'afterburner' ? spotlightClass : tutorialHighlight ? 'opacity-55' : ''}`}
+              >
+                <div
+                  className={`absolute bottom-0 left-0 right-0 pointer-events-none ${
+                    afterburnerActive ? 'bg-amber-400/40' : 'bg-cyan-400/25'
+                  }`}
+                  style={{ height: `${afterburnerPct}%` }}
+                />
+                <Flame
+                  className={`w-5 h-5 relative z-10 ${
+                    afterburnerActive ? 'text-amber-200' : afterburnerReady ? 'text-cyan-200' : 'text-slate-400'
+                  }`}
+                />
+                <span className="relative z-10 leading-none mt-0.5 tabular-nums">
+                  {afterburnerActive
+                    ? `${hud.afterburnerActiveTimer.toFixed(1)}s`
+                    : afterburnerReady
+                    ? 'BURN'
+                    : `${Math.ceil(hud.afterburnerCooldown)}s`}
+                </span>
+                {!touchMode && (
+                  <span className="relative z-10 text-[7px] text-cyan-200/85 leading-none mt-0.5">[SPC]</span>
+                )}
+              </button>
+            </div>
 
             {/* Existing Jet Special Power Button */}
-            <button
-              type="button"
-              onPointerDown={(e) => {
-                e.stopPropagation();
-                onTriggerSpecial();
-              }}
-              title={`${hud.specialName} (Q)`}
-              className={`relative w-16 h-16 sm:w-[70px] sm:h-[70px] rounded-full border-2 flex flex-col items-center justify-center text-[9px] sm:text-[10px] font-extrabold uppercase tracking-wider touch-none overflow-hidden transition-transform active:scale-95 ${
-                hud.specialActiveTimer > 0
-                  ? 'bg-fuchsia-500/55 border-amber-300 text-white shadow-[0_0_24px_rgba(232,121,249,0.75)]'
-                  : specialReady
-                  ? 'bg-fuchsia-600/40 border-fuchsia-300 text-white shadow-[0_0_20px_rgba(232,121,249,0.5)] hover:bg-fuchsia-500/50'
-                  : 'bg-[#040b14]/84 border-slate-600 text-slate-300'
-              }`}
-            >
-              <div
-                className="absolute bottom-0 left-0 right-0 bg-fuchsia-500/25 pointer-events-none"
-                style={{ height: `${specialPct}%` }}
-              />
-              <Zap
-                className={`w-5 h-5 relative z-10 ${
-                  specialReady || hud.specialActiveTimer > 0 ? 'text-amber-300' : 'text-slate-400'
-                }`}
-              />
-              <span className="relative z-10 leading-none mt-0.5 tabular-nums">
-                {hud.specialActiveTimer > 0
-                  ? `${hud.specialActiveTimer.toFixed(1)}s`
-                  : specialReady
-                  ? 'POWER'
-                  : `${Math.ceil(hud.specialCooldown)}s`}
-              </span>
-              {!touchMode && (
-                <span className="relative z-10 text-[7px] text-fuchsia-200/85 leading-none mt-0.5">[Q]</span>
+            <div className="relative flex flex-col items-center">
+              {tutorialHighlight === 'special' && (
+                <span className="mb-1.5 px-1.5 py-0.5 bg-amber-400 text-[#090600] text-[9px] font-extrabold uppercase tracking-wider rounded-sm whitespace-nowrap shadow">
+                  TAP POWER ▼
+                </span>
               )}
-            </button>
+              <button
+                type="button"
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                  onTriggerSpecial();
+                }}
+                title={`${hud.specialName} (Q)`}
+                className={`relative w-16 h-16 sm:w-[70px] sm:h-[70px] rounded-full border-2 flex flex-col items-center justify-center text-[9px] sm:text-[10px] font-extrabold uppercase tracking-wider touch-none overflow-hidden transition-transform active:scale-95 ${
+                  hud.specialActiveTimer > 0
+                    ? 'bg-fuchsia-500/55 border-amber-300 text-white shadow-[0_0_24px_rgba(232,121,249,0.75)]'
+                    : specialReady
+                    ? 'bg-fuchsia-600/40 border-fuchsia-300 text-white shadow-[0_0_20px_rgba(232,121,249,0.5)] hover:bg-fuchsia-500/50'
+                    : 'bg-[#040b14]/84 border-slate-600 text-slate-300'
+                } ${tutorialHighlight === 'special' ? spotlightClass : tutorialHighlight ? 'opacity-55' : ''}`}
+              >
+                <div
+                  className="absolute bottom-0 left-0 right-0 bg-fuchsia-500/25 pointer-events-none"
+                  style={{ height: `${specialPct}%` }}
+                />
+                <Zap
+                  className={`w-5 h-5 relative z-10 ${
+                    specialReady || hud.specialActiveTimer > 0 ? 'text-amber-300' : 'text-slate-400'
+                  }`}
+                />
+                <span className="relative z-10 leading-none mt-0.5 tabular-nums">
+                  {hud.specialActiveTimer > 0
+                    ? `${hud.specialActiveTimer.toFixed(1)}s`
+                    : specialReady
+                    ? 'POWER'
+                    : `${Math.ceil(hud.specialCooldown)}s`}
+                </span>
+                {!touchMode && (
+                  <span className="relative z-10 text-[7px] text-fuchsia-200/85 leading-none mt-0.5">[Q]</span>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       </div>
