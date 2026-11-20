@@ -13,13 +13,15 @@ interface CelestialMaterialEntry {
 
 const _c1 = new THREE.Color();
 const _c2 = new THREE.Color();
+const _c3 = new THREE.Color();
 const _bossBgTint = new THREE.Color(0x1f040b);
 const _bossWireTint = new THREE.Color(0xff4d6d);
 const _bossStripTint = new THREE.Color(0xfbbf24);
 
 /**
- * 15-Arena 3D Cyberpunk & Cosmic Environment with layered trench architecture,
- * orbital celestial landmarks, smooth arena cross-fades, and smooth boss-fight scene transitions.
+ * 15-Arena 3D Cyberpunk & Cosmic Environment with 4 dynamic terrain/side-block modes
+ * ('structure' | 'city' | 'waves' | 'void'), orbital celestial landmarks,
+ * smooth arena cross-fades, and smooth boss-fight scene transitions.
  */
 export class CyberTrenchEnvironment {
   public readonly group = new THREE.Group();
@@ -27,13 +29,46 @@ export class CyberTrenchEnvironment {
   private maxAniso: number;
   private floorGridTexture: THREE.CanvasTexture;
   private wallTexture: THREE.CanvasTexture;
+  private cityFacadeTexture: THREE.CanvasTexture;
+
+  // Floor & trench rails (fade out cleanly in 'waves' and 'void' modes)
+  private floorBaseMesh: THREE.Mesh;
+  private floorGridMesh: THREE.Mesh;
+  private floorRailMeshes: THREE.Mesh[] = [];
   private floorBaseMat: THREE.MeshBasicMaterial;
   private floorGridMat: THREE.MeshBasicMaterial;
   private railMat: THREE.MeshBasicMaterial;
-  private neonStripMat: THREE.MeshBasicMaterial;
-  private solidFillMat: THREE.MeshStandardMaterial;
-  private edgeWireMat: THREE.LineBasicMaterial;
+  private floorConduitMat: THREE.MeshBasicMaterial;
+  private floorAlpha = 1;
+
+  // Mode 1: Normal industrial cyberpunk canyon structures
+  private structureGroup = new THREE.Group();
+  private structureSolidMat: THREE.MeshStandardMaterial;
+  private structureWireMat: THREE.LineBasicMaterial;
+  private structureNeonMat: THREE.MeshBasicMaterial;
   private canyonBlocks: CanyonBlock[] = [];
+  private structureAlpha = 1;
+
+  // Mode 2: Towering cyberpunk megacity skyscrapers & skyways
+  private cityGroup = new THREE.Group();
+  private cityBuildingMat: THREE.MeshStandardMaterial;
+  private cityWireMat: THREE.LineBasicMaterial;
+  private cityNeonMat: THREE.MeshBasicMaterial;
+  private cityBlocks: CanyonBlock[] = [];
+  private cityAlpha = 0;
+
+  // Mode 3: Animated 3D cyber-waves floor + sculpted flanking wave-crest ridges
+  private waveGroup = new THREE.Group();
+  private waveGeo: THREE.PlaneGeometry;
+  private waveSurfaceMat: THREE.MeshStandardMaterial;
+  private waveWireMat: THREE.MeshBasicMaterial;
+  private waveCrestSolidMat: THREE.MeshStandardMaterial;
+  private waveCrestWireMat: THREE.LineBasicMaterial;
+  private waveCrestNeonMat: THREE.MeshBasicMaterial;
+  private waveCrestBlocks: CanyonBlock[] = [];
+  private waveAlpha = 0;
+  private wavePhase = 0;
+
   private tunnelArches: THREE.Mesh[] = [];
   private tunnelArchMat: THREE.MeshBasicMaterial;
   private stars: THREE.Points;
@@ -65,14 +100,21 @@ export class CyberTrenchEnvironment {
     this.wallTexture.repeat.set(2, 2);
     this.wallTexture.anisotropy = this.maxAniso;
 
+    this.cityFacadeTexture = this.createCityFacadeTexture();
+    this.cityFacadeTexture.repeat.set(2, 4);
+    this.cityFacadeTexture.anisotropy = this.maxAniso;
+
+    // ─── Under-ship Trench Floor & Rails ─────────────────────────────────────────
     const floorGeo = new THREE.PlaneGeometry(54, 320);
     this.floorBaseMat = new THREE.MeshBasicMaterial({
       color: new THREE.Color(initialTheme.floorBgColor),
+      transparent: true,
+      opacity: 1,
     });
-    const floorBaseMesh = new THREE.Mesh(floorGeo, this.floorBaseMat);
-    floorBaseMesh.rotation.x = -Math.PI / 2;
-    floorBaseMesh.position.set(0, -7.84, -65);
-    this.group.add(floorBaseMesh);
+    this.floorBaseMesh = new THREE.Mesh(floorGeo, this.floorBaseMat);
+    this.floorBaseMesh.rotation.x = -Math.PI / 2;
+    this.floorBaseMesh.position.set(0, -7.84, -65);
+    this.group.add(this.floorBaseMesh);
 
     this.floorGridMat = new THREE.MeshBasicMaterial({
       map: this.floorGridTexture,
@@ -82,10 +124,10 @@ export class CyberTrenchEnvironment {
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     });
-    const floorGridMesh = new THREE.Mesh(floorGeo, this.floorGridMat);
-    floorGridMesh.rotation.x = -Math.PI / 2;
-    floorGridMesh.position.set(0, -7.8, -65);
-    this.group.add(floorGridMesh);
+    this.floorGridMesh = new THREE.Mesh(floorGeo, this.floorGridMat);
+    this.floorGridMesh.rotation.x = -Math.PI / 2;
+    this.floorGridMesh.position.set(0, -7.8, -65);
+    this.group.add(this.floorGridMesh);
 
     // Dual-layer Glowing Cyber Trench Rails
     this.railMat = new THREE.MeshBasicMaterial({
@@ -93,7 +135,7 @@ export class CyberTrenchEnvironment {
       transparent: true,
       opacity: 0.72,
     });
-    this.neonStripMat = new THREE.MeshBasicMaterial({
+    this.floorConduitMat = new THREE.MeshBasicMaterial({
       color: new THREE.Color(initialTheme.gridColor),
       transparent: true,
       opacity: 0.78,
@@ -102,34 +144,152 @@ export class CyberTrenchEnvironment {
       const rail = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.16, 320), this.railMat);
       rail.position.set(xPos, -7.66, -65);
       this.group.add(rail);
+      this.floorRailMeshes.push(rail);
 
-      const outerConduit = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 320), this.neonStripMat);
+      const outerConduit = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 320), this.floorConduitMat);
       outerConduit.position.set(xPos + Math.sign(xPos) * 0.75, -7.52, -65);
       this.group.add(outerConduit);
+      this.floorRailMeshes.push(outerConduit);
     }
 
-    this.solidFillMat = new THREE.MeshStandardMaterial({
+    // ─── Mode 1: Normal Cyberpunk Trench Structures ──────────────────────────────
+    this.structureSolidMat = new THREE.MeshStandardMaterial({
       map: this.wallTexture,
       color: initialTheme.cliffColorHex,
       emissive: initialTheme.cliffEmissiveHex,
       emissiveIntensity: 0.85,
       roughness: 0.52,
       metalness: 0.42,
+      transparent: true,
+      opacity: 1,
     });
-    this.edgeWireMat = new THREE.LineBasicMaterial({
+    this.structureWireMat = new THREE.LineBasicMaterial({
       color: initialTheme.wireHex,
       transparent: true,
       opacity: 0.85,
     });
+    this.structureNeonMat = new THREE.MeshBasicMaterial({
+      color: new THREE.Color(initialTheme.gridColor),
+      transparent: true,
+      opacity: 0.78,
+    });
 
     for (let i = 0; i < this.blockPairs; i++) {
       const z = 66 - i * this.blockSpacing;
-      const cluster = this.createCanyonPair(this.solidFillMat, this.edgeWireMat, this.neonStripMat, i);
+      const cluster = this.createCanyonPair(
+        this.structureSolidMat,
+        this.structureWireMat,
+        this.structureNeonMat,
+        i
+      );
       cluster.position.z = z;
-      this.group.add(cluster);
+      this.structureGroup.add(cluster);
       this.canyonBlocks.push({ mesh: cluster, z });
     }
+    this.group.add(this.structureGroup);
 
+    // ─── Mode 2: Towering Cyberpunk Megacity Skyscrapers ─────────────────────────
+    this.cityBuildingMat = new THREE.MeshStandardMaterial({
+      map: this.cityFacadeTexture,
+      emissiveMap: this.cityFacadeTexture,
+      color: initialTheme.cliffColorHex,
+      emissive: new THREE.Color(initialTheme.gridColor),
+      emissiveIntensity: 0.92,
+      roughness: 0.42,
+      metalness: 0.62,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+    });
+    this.cityWireMat = new THREE.LineBasicMaterial({
+      color: initialTheme.wireHex,
+      transparent: true,
+      opacity: 0,
+    });
+    this.cityNeonMat = new THREE.MeshBasicMaterial({
+      color: new THREE.Color(initialTheme.gridColor),
+      transparent: true,
+      opacity: 0,
+    });
+
+    for (let i = 0; i < this.blockPairs; i++) {
+      const z = 66 - i * this.blockSpacing;
+      const cluster = this.createCityPair(this.cityBuildingMat, this.cityWireMat, this.cityNeonMat, i);
+      cluster.position.z = z;
+      this.cityGroup.add(cluster);
+      this.cityBlocks.push({ mesh: cluster, z });
+    }
+    this.cityGroup.visible = false;
+    this.group.add(this.cityGroup);
+
+    // ─── Mode 3: Animated 3D Cyber-Waves & Flanking Crest Ridges ─────────────────
+    this.waveGeo = new THREE.PlaneGeometry(76, 290, 34, 48);
+    this.waveSurfaceMat = new THREE.MeshStandardMaterial({
+      color: initialTheme.cliffColorHex,
+      emissive: initialTheme.cliffEmissiveHex,
+      emissiveIntensity: 0.72,
+      roughness: 0.24,
+      metalness: 0.68,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const waveSurfaceMesh = new THREE.Mesh(this.waveGeo, this.waveSurfaceMat);
+    waveSurfaceMesh.rotation.x = -Math.PI / 2;
+    waveSurfaceMesh.position.set(0, -8.35, -62);
+    this.waveGroup.add(waveSurfaceMesh);
+
+    this.waveWireMat = new THREE.MeshBasicMaterial({
+      color: new THREE.Color(initialTheme.gridColor),
+      wireframe: true,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const waveWireMesh = new THREE.Mesh(this.waveGeo, this.waveWireMat);
+    waveWireMesh.rotation.x = -Math.PI / 2;
+    waveWireMesh.position.set(0, -8.28, -62);
+    this.waveGroup.add(waveWireMesh);
+
+    this.waveCrestSolidMat = new THREE.MeshStandardMaterial({
+      color: initialTheme.cliffColorHex,
+      emissive: initialTheme.cliffEmissiveHex,
+      emissiveIntensity: 0.8,
+      roughness: 0.3,
+      metalness: 0.6,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+    });
+    this.waveCrestWireMat = new THREE.LineBasicMaterial({
+      color: initialTheme.wireHex,
+      transparent: true,
+      opacity: 0,
+    });
+    this.waveCrestNeonMat = new THREE.MeshBasicMaterial({
+      color: new THREE.Color(initialTheme.gridColor),
+      transparent: true,
+      opacity: 0,
+    });
+
+    for (let i = 0; i < this.blockPairs; i++) {
+      const z = 66 - i * this.blockSpacing;
+      const cluster = this.createWaveCrestPair(
+        this.waveCrestSolidMat,
+        this.waveCrestWireMat,
+        this.waveCrestNeonMat,
+        i
+      );
+      cluster.position.z = z;
+      this.waveGroup.add(cluster);
+      this.waveCrestBlocks.push({ mesh: cluster, z });
+    }
+    this.waveGroup.visible = false;
+    this.group.add(this.waveGroup);
+
+    // ─── Hyper-Tunnel Arches ─────────────────────────────────────────────────────
     this.tunnelArchMat = new THREE.MeshBasicMaterial({
       color: initialTheme.wireHex,
       transparent: true,
@@ -189,17 +349,23 @@ export class CyberTrenchEnvironment {
       this.group.add(g);
     });
 
-    // Deep-space starfield
-    const starCount = 1150;
+    // Full-360° Deep-Space Starfield (includes deep abyss stars below the ship for 'void' mode)
+    const starCount = 1450;
     const starPos = new Float32Array(starCount * 3);
     const starCol = new Float32Array(starCount * 3);
     const color = new THREE.Color();
 
     for (let i = 0; i < starCount; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const radius = 20 + Math.random() * 86;
-      starPos[i * 3] = Math.cos(angle) * radius;
-      starPos[i * 3 + 1] = Math.sin(angle) * radius * 0.72 + 14;
+      if (i < 1100) {
+        const angle = Math.random() * Math.PI * 2;
+        const radius = 20 + Math.random() * 88;
+        starPos[i * 3] = Math.cos(angle) * radius;
+        starPos[i * 3 + 1] = Math.sin(angle) * radius * 0.78 + 4;
+      } else {
+        // Dedicated under-ship abyss stars visible when floor fades into cosmic void
+        starPos[i * 3] = (Math.random() - 0.5) * 140;
+        starPos[i * 3 + 1] = -11 - Math.random() * 54;
+      }
       starPos[i * 3 + 2] = -Math.random() * 270 + 80;
 
       const tint = Math.random();
@@ -987,6 +1153,53 @@ export class CyberTrenchEnvironment {
     return tex;
   }
 
+  private createCityFacadeTexture(): THREE.CanvasTexture {
+    const size = 256;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d')!;
+
+    ctx.fillStyle = '#050811';
+    ctx.fillRect(0, 0, size, size);
+
+    // Subtle structural panel seams
+    ctx.strokeStyle = '#182235';
+    ctx.lineWidth = 2;
+    for (let y = 0; y < size; y += 32) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(size, y);
+      ctx.stroke();
+    }
+
+    // Lit cyberpunk skyscraper window grids (white/grayscale so emissive tint colors them cleanly)
+    const cols = 8;
+    const rows = 16;
+    const cellW = size / cols;
+    const cellH = size / rows;
+    for (let r = 0; r < rows; r++) {
+      // Occasional bright full-floor neon skyband
+      const isBand = r === 4 || r === 11;
+      for (let c = 0; c < cols; c++) {
+        const hash = (r * 37 + c * 17 + 13) % 11;
+        if (!isBand && hash < 4) continue;
+        const brightness = isBand ? 0.95 : hash > 8 ? 0.9 : 0.48 + (hash % 4) * 0.12;
+        ctx.fillStyle = '#ffffff';
+        ctx.globalAlpha = brightness;
+        ctx.fillRect(c * cellW + 5, r * cellH + 4, cellW - 10, cellH - 8);
+      }
+    }
+
+    ctx.globalAlpha = 1;
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.needsUpdate = true;
+    return tex;
+  }
+
   private createCanyonPair(
     solidMat: THREE.Material,
     wireMat: THREE.LineBasicMaterial,
@@ -1047,9 +1260,155 @@ export class CyberTrenchEnvironment {
     return pair;
   }
 
+  private createCityPair(
+    buildingMat: THREE.Material,
+    wireMat: THREE.LineBasicMaterial,
+    neonMat: THREE.MeshBasicMaterial,
+    seed: number
+  ): THREE.Group {
+    const pair = new THREE.Group();
+
+    for (const side of [-1, 1]) {
+      const sideBias = side > 0 ? 5 : 2;
+
+      // Elevated Cyber Skyway Highway Deck along city flank
+      const deck = new THREE.Mesh(new THREE.BoxGeometry(4.2, 1.4, this.blockSpacing - 0.6), buildingMat);
+      deck.position.set(side * 16.2, -7.1, 0);
+      pair.add(deck);
+
+      const deckRail = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.24, this.blockSpacing - 1.2), neonMat);
+      deckRail.position.set(side * 14.15, -6.25, 0);
+      pair.add(deckRail);
+
+      // Foreground Stepped Cyberpunk Skyscraper
+      const w1 = 5.4 + ((seed * 3 + sideBias) % 3) * 0.9;
+      const d1 = 7.6 + ((seed * 5 + sideBias) % 4) * 1.1;
+      const h1 = 14 + ((seed * 7 + sideBias * 3) % 13);
+      const x1 = side * (17.2 + w1 * 0.5);
+      const geo1 = new THREE.BoxGeometry(w1, h1, d1);
+      const tower1 = new THREE.Mesh(geo1, buildingMat);
+      tower1.position.set(x1, -7.8 + h1 * 0.5, ((seed % 3) - 1) * 1.6);
+      pair.add(tower1);
+
+      const edges1 = new THREE.LineSegments(new THREE.EdgesGeometry(geo1), wireMat);
+      edges1.position.copy(tower1.position);
+      pair.add(edges1);
+
+      // Vertical Neon Corner Light Strip facing the flight trench
+      const vStrip = new THREE.Mesh(new THREE.BoxGeometry(0.22, h1 - 1.2, 0.24), neonMat);
+      vStrip.position.set(
+        x1 - side * (w1 * 0.5 + 0.04),
+        -7.8 + h1 * 0.5,
+        tower1.position.z + d1 * 0.42
+      );
+      pair.add(vStrip);
+
+      // Horizontal Hologram Crown / Billboard Rim
+      const crownTrim = new THREE.Mesh(new THREE.BoxGeometry(w1 + 0.24, 0.36, d1 + 0.24), neonMat);
+      crownTrim.position.set(x1, -7.8 + h1 - 0.4, tower1.position.z);
+      pair.add(crownTrim);
+
+      // Stepped Upper Penthouse Tier + Spire
+      const hTop = 4.2 + ((seed * 3 + sideBias) % 5);
+      const topGeo = new THREE.BoxGeometry(w1 * 0.66, hTop, d1 * 0.66);
+      const topTier = new THREE.Mesh(topGeo, buildingMat);
+      topTier.position.set(x1, -7.8 + h1 + hTop * 0.5, tower1.position.z);
+      pair.add(topTier);
+
+      const topEdges = new THREE.LineSegments(new THREE.EdgesGeometry(topGeo), wireMat);
+      topEdges.position.copy(topTier.position);
+      pair.add(topEdges);
+
+      if ((seed + (side > 0 ? 1 : 0)) % 2 === 0) {
+        const spire = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.18, 5.4, 6), buildingMat);
+        spire.position.set(x1, -7.8 + h1 + hTop + 2.7, tower1.position.z);
+        pair.add(spire);
+
+        const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.38, 8, 8), neonMat);
+        beacon.position.set(x1, -7.8 + h1 + hTop + 5.5, tower1.position.z);
+        pair.add(beacon);
+      }
+
+      // Secondary Deep Skyline Megatower behind foreground tower
+      const w2 = 7.2 + ((seed + sideBias) % 3);
+      const d2 = 9.5 + ((seed * 2) % 4);
+      const h2 = 22 + ((seed * 11 + sideBias * 5) % 16);
+      const x2 = side * (26.5 + w2 * 0.5);
+      const geo2 = new THREE.BoxGeometry(w2, h2, d2);
+      const bgTower = new THREE.Mesh(geo2, buildingMat);
+      bgTower.position.set(x2, -7.8 + h2 * 0.5, -3.5 + (seed % 2) * 5);
+      pair.add(bgTower);
+
+      const bgEdges = new THREE.LineSegments(new THREE.EdgesGeometry(geo2), wireMat);
+      bgEdges.position.copy(bgTower.position);
+      pair.add(bgEdges);
+
+      const skyBand = new THREE.Mesh(new THREE.BoxGeometry(w2 + 0.25, 0.45, d2 + 0.25), neonMat);
+      skyBand.position.set(x2, -7.8 + h2 * 0.72, bgTower.position.z);
+      pair.add(skyBand);
+    }
+
+    return pair;
+  }
+
+  private createWaveCrestPair(
+    solidMat: THREE.Material,
+    wireMat: THREE.LineBasicMaterial,
+    neonMat: THREE.MeshBasicMaterial,
+    seed: number
+  ): THREE.Group {
+    const pair = new THREE.Group();
+
+    for (const side of [-1, 1]) {
+      const bias = side > 0 ? 3 : 1;
+      // Swept Prism Wave-Crest Fin curling slightly inward above the outer sea
+      const h1 = 7.5 + ((seed * 5 + bias * 2) % 6);
+      const crestGeo = new THREE.ConeGeometry(4.8, h1, 4);
+      const crest = new THREE.Mesh(crestGeo, solidMat);
+      crest.scale.set(0.85, 1, 1.85);
+      crest.position.set(side * 18.5, -6.5 + h1 * 0.35, 0);
+      crest.rotation.z = side * 0.36;
+      crest.rotation.y = Math.PI * 0.25;
+      pair.add(crest);
+
+      const edges1 = new THREE.LineSegments(new THREE.EdgesGeometry(crestGeo), wireMat);
+      edges1.scale.copy(crest.scale);
+      edges1.position.copy(crest.position);
+      edges1.rotation.copy(crest.rotation);
+      pair.add(edges1);
+
+      // Glowing Energy Foam / Surge Crest Spine along the wave peak
+      const foam = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.24, this.blockSpacing * 0.78), neonMat);
+      foam.position.set(side * (16.4 + (seed % 2) * 0.8), -3.8 + ((seed * 3 + bias) % 3) * 0.9, 0);
+      foam.rotation.x = side * 0.08;
+      pair.add(foam);
+
+      // Secondary Outer Swell Ridge
+      if ((seed + bias) % 2 === 0) {
+        const h2 = 11 + ((seed * 7 + bias) % 7);
+        const swellGeo = new THREE.ConeGeometry(6.2, h2, 4);
+        const swell = new THREE.Mesh(swellGeo, solidMat);
+        swell.scale.set(0.95, 1, 2.0);
+        swell.position.set(side * 27.5, -6.5 + h2 * 0.38, -2.5);
+        swell.rotation.z = side * 0.28;
+        swell.rotation.y = Math.PI * 0.25;
+        pair.add(swell);
+
+        const edges2 = new THREE.LineSegments(new THREE.EdgesGeometry(swellGeo), wireMat);
+        edges2.scale.copy(swell.scale);
+        edges2.position.copy(swell.position);
+        edges2.rotation.copy(swell.rotation);
+        pair.add(edges2);
+      }
+    }
+
+    return pair;
+  }
+
   public update(dt: number, scrollSpeed: number, themeId: ArenaThemeId, bossActive = false): void {
     this.setTheme(themeId);
     const theme = ARENA_THEMES[this.targetThemeId];
+    const mode = theme.structureMode;
     const colorLerp = 1 - Math.exp(-2.4 * dt);
 
     // Smoothly ramp boss battle atmosphere transition (0 = sector patrol, 1 = dreadnought battle)
@@ -1072,17 +1431,119 @@ export class CyberTrenchEnvironment {
 
     _c1.set(theme.gridColor).lerp(_bossStripTint, this.bossBlend * 0.32);
     this.floorGridMat.color.lerp(_c1, colorLerp);
-    this.neonStripMat.color.lerp(_c1, colorLerp);
+    this.floorConduitMat.color.lerp(_c1, colorLerp);
+    this.structureNeonMat.color.lerp(_c1, colorLerp);
+    this.cityNeonMat.color.lerp(_c1, colorLerp);
+    this.waveWireMat.color.lerp(_c1, colorLerp);
+    this.waveCrestNeonMat.color.lerp(_c1, colorLerp);
 
     _c2.setHex(theme.wireHex).lerp(_bossWireTint, this.bossBlend * 0.48);
     this.railMat.color.lerp(_c2, colorLerp);
-    this.edgeWireMat.color.lerp(_c2, colorLerp);
+    this.structureWireMat.color.lerp(_c2, colorLerp);
+    this.cityWireMat.color.lerp(_c2, colorLerp);
+    this.waveCrestWireMat.color.lerp(_c2, colorLerp);
     this.tunnelArchMat.color.lerp(_c2, colorLerp);
 
     _c1.setHex(theme.cliffColorHex);
-    this.solidFillMat.color.lerp(_c1, colorLerp);
+    this.structureSolidMat.color.lerp(_c1, colorLerp);
+    this.cityBuildingMat.color.lerp(_c1, colorLerp);
+    this.waveSurfaceMat.color.lerp(_c1, colorLerp);
+    this.waveCrestSolidMat.color.lerp(_c1, colorLerp);
+
     _c2.setHex(theme.cliffEmissiveHex).lerp(_bossBgTint, this.bossBlend * 0.45);
-    this.solidFillMat.emissive.lerp(_c2, colorLerp);
+    this.structureSolidMat.emissive.lerp(_c2, colorLerp);
+    this.waveSurfaceMat.emissive.lerp(_c2, colorLerp);
+    this.waveCrestSolidMat.emissive.lerp(_c2, colorLerp);
+
+    // City windows glow brightly in the active arena's neon accent color
+    _c3.set(theme.gridColor).lerp(_bossStripTint, this.bossBlend * 0.38);
+    this.cityBuildingMat.emissive.lerp(_c3, colorLerp);
+
+    // ─── Smooth Cross-Fades Between Structure / City / Waves / Void ──────────────
+    const targetFloor = mode === 'structure' || mode === 'city' ? 1 : 0;
+    const targetStructure = mode === 'structure' ? 1 : 0;
+    const targetCity = mode === 'city' ? 1 : 0;
+    const targetWave = mode === 'waves' ? 1 : 0;
+
+    this.floorAlpha = THREE.MathUtils.damp(this.floorAlpha, targetFloor, 1.85, dt);
+    this.structureAlpha = THREE.MathUtils.damp(this.structureAlpha, targetStructure, 1.85, dt);
+    this.cityAlpha = THREE.MathUtils.damp(this.cityAlpha, targetCity, 1.85, dt);
+    this.waveAlpha = THREE.MathUtils.damp(this.waveAlpha, targetWave, 1.85, dt);
+
+    if (this.floorAlpha < 0.005) this.floorAlpha = 0;
+    else if (this.floorAlpha > 0.995) this.floorAlpha = 1;
+    if (this.structureAlpha < 0.005) this.structureAlpha = 0;
+    else if (this.structureAlpha > 0.995) this.structureAlpha = 1;
+    if (this.cityAlpha < 0.005) this.cityAlpha = 0;
+    else if (this.cityAlpha > 0.995) this.cityAlpha = 1;
+    if (this.waveAlpha < 0.005) this.waveAlpha = 0;
+    else if (this.waveAlpha > 0.995) this.waveAlpha = 1;
+
+    // Apply Floor & Rail Visibility / Fade
+    const floorVisible = this.floorAlpha > 0.008;
+    this.floorBaseMesh.visible = floorVisible;
+    this.floorGridMesh.visible = floorVisible;
+    for (let i = 0; i < this.floorRailMeshes.length; i++) {
+      this.floorRailMeshes[i].visible = floorVisible;
+    }
+    this.floorBaseMat.opacity = this.floorAlpha;
+    this.floorBaseMat.depthWrite = this.floorAlpha > 0.95;
+    this.floorGridMat.opacity = 0.92 * this.floorAlpha;
+    this.railMat.opacity = 0.72 * this.floorAlpha;
+    this.floorConduitMat.opacity = 0.78 * this.floorAlpha;
+
+    // Apply Mode 1: Normal Canyon Structure
+    this.structureGroup.visible = this.structureAlpha > 0.008;
+    if (this.structureGroup.visible) {
+      this.structureGroup.position.y = (1 - this.structureAlpha) * -18;
+      this.structureSolidMat.opacity = this.structureAlpha;
+      this.structureSolidMat.depthWrite = this.structureAlpha > 0.95;
+      this.structureWireMat.opacity = 0.85 * this.structureAlpha;
+      this.structureNeonMat.opacity = 0.78 * this.structureAlpha;
+    }
+
+    // Apply Mode 2: Megacity Skyscrapers
+    this.cityGroup.visible = this.cityAlpha > 0.008;
+    if (this.cityGroup.visible) {
+      this.cityGroup.position.y = (1 - this.cityAlpha) * -24;
+      this.cityBuildingMat.opacity = this.cityAlpha;
+      this.cityBuildingMat.depthWrite = this.cityAlpha > 0.95;
+      this.cityWireMat.opacity = 0.72 * this.cityAlpha;
+      this.cityNeonMat.opacity = 0.88 * this.cityAlpha;
+    }
+
+    // Apply Mode 3: Animated 3D Cyber-Waves + Crest Ridges
+    this.waveGroup.visible = this.waveAlpha > 0.008;
+    this.wavePhase += scrollSpeed * dt * 0.145;
+    if (this.waveGroup.visible) {
+      this.waveGroup.position.y = (1 - this.waveAlpha) * -14;
+      this.waveSurfaceMat.opacity = 0.88 * this.waveAlpha;
+      this.waveSurfaceMat.depthWrite = this.waveAlpha > 0.95;
+      this.waveWireMat.opacity = 0.74 * this.waveAlpha;
+      this.waveCrestSolidMat.opacity = 0.94 * this.waveAlpha;
+      this.waveCrestSolidMat.depthWrite = this.waveAlpha > 0.95;
+      this.waveCrestWireMat.opacity = 0.85 * this.waveAlpha;
+      this.waveCrestNeonMat.opacity = 0.88 * this.waveAlpha;
+
+      // Deform wave terrain vertices smoothly (calmer trough under flight lane, surging swells on sides)
+      const wavePos = this.waveGeo.attributes.position as THREE.BufferAttribute;
+      for (let i = 0; i < wavePos.count; i++) {
+        const vx = wavePos.getX(i);
+        const vy = wavePos.getY(i);
+        const absX = Math.abs(vx);
+        const flank = absX <= 8.5 ? 0 : absX >= 26.5 ? 1 : (absX - 8.5) / 18;
+        const centerWave =
+          0.62 * Math.sin(vx * 0.24 + this.wavePhase * 0.55) +
+          0.72 * Math.cos(vy * 0.13 + this.wavePhase);
+        const flankWave =
+          flank *
+          (2.55 * Math.sin(vy * 0.11 + this.wavePhase * 0.95 + absX * 0.09) +
+            1.4 * Math.cos(vx * 0.32 - this.wavePhase * 0.7));
+        wavePos.setZ(i, centerWave + flankWave + flank * 1.35);
+      }
+      wavePos.needsUpdate = true;
+      this.waveGeo.computeVertexNormals();
+    }
 
     // Smooth cross-fade & horizon slide across Celestial Skyscapes
     (Object.keys(this.celestialGroups) as ArenaThemeId[]).forEach((key) => {
@@ -1119,14 +1580,25 @@ export class CyberTrenchEnvironment {
     const totalDepth = this.blockPairs * this.blockSpacing;
     for (const block of this.canyonBlocks) {
       block.z += scrollSpeed * dt;
-      if (block.z > wrapLimit) {
-        block.z -= totalDepth;
-      }
+      if (block.z > wrapLimit) block.z -= totalDepth;
       block.mesh.position.z = block.z;
     }
 
-    const baseTunnelOpacity = theme.hasTunnel ? 0.52 : theme.openSpace ? 0.06 : 0.0;
-    const targetTunnelOpacity = Math.min(0.66, baseTunnelOpacity + this.bossBlend * 0.16);
+    for (const block of this.cityBlocks) {
+      block.z += scrollSpeed * dt;
+      if (block.z > wrapLimit) block.z -= totalDepth;
+      block.mesh.position.z = block.z;
+    }
+
+    for (const block of this.waveCrestBlocks) {
+      block.z += scrollSpeed * dt;
+      if (block.z > wrapLimit) block.z -= totalDepth;
+      block.mesh.position.z = block.z;
+      block.mesh.position.y = Math.sin(block.z * 0.09 + this.wavePhase) * 1.05;
+    }
+
+    const baseTunnelOpacity = theme.hasTunnel ? 0.52 : mode === 'void' ? 0.0 : 0.0;
+    const targetTunnelOpacity = Math.min(0.66, baseTunnelOpacity + this.bossBlend * (mode === 'void' ? 0.08 : 0.16));
     this.tunnelOpacity = THREE.MathUtils.damp(this.tunnelOpacity, targetTunnelOpacity, 2.2, dt);
     this.tunnelArchMat.opacity = this.tunnelOpacity;
 
@@ -1136,11 +1608,6 @@ export class CyberTrenchEnvironment {
         arch.position.z -= totalDepth;
       }
       arch.visible = this.tunnelOpacity > 0.02;
-    }
-
-    const targetCanyonY = theme.openSpace ? -7.2 : 0;
-    for (const block of this.canyonBlocks) {
-      block.mesh.position.y = THREE.MathUtils.damp(block.mesh.position.y, targetCanyonY, 2.0, dt);
     }
 
     const posAttr = this.stars.geometry.attributes.position as THREE.BufferAttribute;
@@ -1158,6 +1625,7 @@ export class CyberTrenchEnvironment {
   public dispose(): void {
     this.floorGridTexture.dispose();
     this.wallTexture.dispose();
+    this.cityFacadeTexture.dispose();
     this.group.traverse((obj) => {
       if ((obj as THREE.Mesh).isMesh || (obj as THREE.LineSegments).isLineSegments || (obj as THREE.Points).isPoints) {
         const renderable = obj as THREE.Mesh;

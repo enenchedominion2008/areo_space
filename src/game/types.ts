@@ -183,6 +183,8 @@ export const JETS: Record<JetId, JetSpec> = {
   },
 };
 
+export type ArenaStructureMode = 'structure' | 'city' | 'waves' | 'void';
+
 export interface ArenaTheme {
   id: ArenaThemeId;
   name: string;
@@ -195,6 +197,7 @@ export interface ArenaTheme {
   cliffEmissiveHex: number;
   hasTunnel: boolean;
   openSpace: boolean;
+  structureMode: ArenaStructureMode;
 }
 
 export const ARENA_THEMES: Record<ArenaThemeId, ArenaTheme> = {
@@ -210,6 +213,7 @@ export const ARENA_THEMES: Record<ArenaThemeId, ArenaTheme> = {
     cliffEmissiveHex: 0x00331e,
     hasTunnel: false,
     openSpace: false,
+    structureMode: 'structure',
   },
   neon_megacity: {
     id: 'neon_megacity',
@@ -223,6 +227,7 @@ export const ARENA_THEMES: Record<ArenaThemeId, ArenaTheme> = {
     cliffEmissiveHex: 0x240a42,
     hasTunnel: true,
     openSpace: false,
+    structureMode: 'city',
   },
   cobalt_tunnel: {
     id: 'cobalt_tunnel',
@@ -236,6 +241,7 @@ export const ARENA_THEMES: Record<ArenaThemeId, ArenaTheme> = {
     cliffEmissiveHex: 0x041e42,
     hasTunnel: true,
     openSpace: false,
+    structureMode: 'structure',
   },
   cryo_prism: {
     id: 'cryo_prism',
@@ -249,6 +255,7 @@ export const ARENA_THEMES: Record<ArenaThemeId, ArenaTheme> = {
     cliffEmissiveHex: 0x0e475e,
     hasTunnel: false,
     openSpace: false,
+    structureMode: 'waves',
   },
   biolum_abyss: {
     id: 'biolum_abyss',
@@ -262,6 +269,7 @@ export const ARENA_THEMES: Record<ArenaThemeId, ArenaTheme> = {
     cliffEmissiveHex: 0x083b45,
     hasTunnel: false,
     openSpace: false,
+    structureMode: 'waves',
   },
   crimson_magma: {
     id: 'crimson_magma',
@@ -275,6 +283,7 @@ export const ARENA_THEMES: Record<ArenaThemeId, ArenaTheme> = {
     cliffEmissiveHex: 0x451205,
     hasTunnel: false,
     openSpace: false,
+    structureMode: 'waves',
   },
   hyperion_foundry: {
     id: 'hyperion_foundry',
@@ -288,6 +297,7 @@ export const ARENA_THEMES: Record<ArenaThemeId, ArenaTheme> = {
     cliffEmissiveHex: 0x3d1f07,
     hasTunnel: true,
     openSpace: false,
+    structureMode: 'city',
   },
   quantum_grid: {
     id: 'quantum_grid',
@@ -301,6 +311,7 @@ export const ARENA_THEMES: Record<ArenaThemeId, ArenaTheme> = {
     cliffEmissiveHex: 0x0a3336,
     hasTunnel: true,
     openSpace: false,
+    structureMode: 'structure',
   },
   synthwave_horizon: {
     id: 'synthwave_horizon',
@@ -314,6 +325,7 @@ export const ARENA_THEMES: Record<ArenaThemeId, ArenaTheme> = {
     cliffEmissiveHex: 0x3a0c4a,
     hasTunnel: false,
     openSpace: false,
+    structureMode: 'waves',
   },
   violet_void: {
     id: 'violet_void',
@@ -327,6 +339,7 @@ export const ARENA_THEMES: Record<ArenaThemeId, ArenaTheme> = {
     cliffEmissiveHex: 0x2a0845,
     hasTunnel: false,
     openSpace: true,
+    structureMode: 'void',
   },
   astral_helix: {
     id: 'astral_helix',
@@ -339,7 +352,8 @@ export const ARENA_THEMES: Record<ArenaThemeId, ArenaTheme> = {
     cliffColorHex: 0x111942,
     cliffEmissiveHex: 0x162052,
     hasTunnel: true,
-    openSpace: false,
+    openSpace: true,
+    structureMode: 'void',
   },
   solar_corona: {
     id: 'solar_corona',
@@ -353,6 +367,7 @@ export const ARENA_THEMES: Record<ArenaThemeId, ArenaTheme> = {
     cliffEmissiveHex: 0x4f2104,
     hasTunnel: false,
     openSpace: false,
+    structureMode: 'waves',
   },
   singularity_horizon: {
     id: 'singularity_horizon',
@@ -366,6 +381,7 @@ export const ARENA_THEMES: Record<ArenaThemeId, ArenaTheme> = {
     cliffEmissiveHex: 0x2b082e,
     hasTunnel: false,
     openSpace: true,
+    structureMode: 'void',
   },
   obsidian_citadel: {
     id: 'obsidian_citadel',
@@ -379,6 +395,7 @@ export const ARENA_THEMES: Record<ArenaThemeId, ArenaTheme> = {
     cliffEmissiveHex: 0x382806,
     hasTunnel: true,
     openSpace: false,
+    structureMode: 'city',
   },
   zenith_omega: {
     id: 'zenith_omega',
@@ -392,6 +409,7 @@ export const ARENA_THEMES: Record<ArenaThemeId, ArenaTheme> = {
     cliffEmissiveHex: 0x17354f,
     hasTunnel: true,
     openSpace: true,
+    structureMode: 'void',
   },
 };
 
