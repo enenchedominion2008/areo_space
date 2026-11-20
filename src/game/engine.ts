@@ -2034,10 +2034,16 @@ export class SpaceShooterEngine {
         }
       }
 
-      // Boss HP phase transition notifications & chase phase trigger at 50% HP
+      // Boss HP phase transition notifications & periodic chase phase trigger (Sector Finales: levels 4, 8, 12, 16, 20)
       if (e.kind === 'dreadnought') {
         const hpRatio = e.hp / Math.max(1, e.maxHp);
-        if (!this.bossChaseCompleted && this.bossChasePhase === 'none' && e.hp > 0 && hpRatio <= 0.5) {
+        if (
+          this.canTriggerBossChase() &&
+          !this.bossChaseCompleted &&
+          this.bossChasePhase === 'none' &&
+          e.hp > 0 &&
+          hpRatio <= 0.5
+        ) {
           this.beginBossChase(e);
           continue;
         }
@@ -2132,11 +2138,15 @@ export class SpaceShooterEngine {
     }
   }
 
+  private canTriggerBossChase(): boolean {
+    return this.wave % 4 === 0;
+  }
+
   private beginBossChase(boss: EnemyActor): void {
     this.bossChaseCompleted = true;
     this.bossChasePhase = 'entering';
     this.bossChaseTimer = BOSS_CHASE_ENTER_DURATION;
-    this.chaseBarrageTimer = 0.25;
+    this.chaseBarrageTimer = 0.55;
     this.chaseTelegraphTimer = 0;
     this.chaseSubWaveRemaining = 0;
     this.chaseSubWaveInterval = 0;
@@ -2172,7 +2182,7 @@ export class SpaceShooterEngine {
       }
     }
 
-    this.invulnTimer = Math.max(this.invulnTimer, BOSS_CHASE_ENTER_DURATION + 0.45);
+    this.invulnTimer = Math.max(this.invulnTimer, BOSS_CHASE_ENTER_DURATION + 0.5);
     this.cameraShake = Math.max(this.cameraShake, 0.35);
     this.audio.playEnemyWarning();
     this.showBanner('BOSS PURSUIT · EVADE BARRAGE!', 2.5);
@@ -2189,7 +2199,7 @@ export class SpaceShooterEngine {
       if (this.bossChaseTimer <= 0) {
         this.bossChasePhase = 'active';
         this.bossChaseTimer = BOSS_CHASE_DURATION;
-        this.chaseBarrageTimer = 0.2;
+        this.chaseBarrageTimer = 0.55;
         this.chaseTelegraphTimer = 0;
         this.chaseSubWaveRemaining = 0;
         this.showBanner('WEAPONS LOCKED · DODGE THE BARRAGE!', 2.0);
@@ -2242,11 +2252,11 @@ export class SpaceShooterEngine {
       if (this.chaseSubWaveInterval <= 0) {
         this.fireBossChaseSalvo(boss);
         this.chaseSubWaveRemaining--;
-        this.chaseSubWaveInterval = this.chasePatternIndex % 3 === 1 ? 0.15 : 0.23;
+        this.chaseSubWaveInterval = this.chasePatternIndex % 3 === 1 ? 0.34 : 0.45;
         if (this.chaseSubWaveRemaining <= 0) {
           this.chasePatternIndex++;
           this.chaseSweepSign *= -1;
-          this.chaseBarrageTimer = 0.42;
+          this.chaseBarrageTimer = 1.15;
         }
       }
       return;
@@ -2268,7 +2278,7 @@ export class SpaceShooterEngine {
         halo.visible = false;
         coreMat.emissiveIntensity = 3.2;
         const pattern = this.chasePatternIndex % 3;
-        this.chaseSubWaveRemaining = pattern === 1 ? 5 : 3;
+        this.chaseSubWaveRemaining = pattern === 1 ? 3 : 2;
         this.chaseSubWaveInterval = 0;
       }
       return;
@@ -2278,9 +2288,9 @@ export class SpaceShooterEngine {
     coreMat.emissiveIntensity = 2.8;
     this.chaseBarrageTimer -= dt;
     if (this.chaseBarrageTimer <= 0) {
-      const gapChoices = [-6.8, 0, 6.8];
+      const gapChoices = [-6.5, 0, 6.5];
       this.chaseGapCenter = gapChoices[this.chasePatternIndex % gapChoices.length];
-      this.chaseTelegraphDuration = 0.54;
+      this.chaseTelegraphDuration = 0.7;
       this.chaseTelegraphTimer = this.chaseTelegraphDuration;
       this.audio.playEnemyWarning();
     }
@@ -2290,19 +2300,19 @@ export class SpaceShooterEngine {
     const pattern = this.chasePatternIndex % 3;
     const waveDmg = Math.floor((this.wave - 1) * 0.85);
     const damage = 30 + waveDmg;
-    const boltSpeed = 40 + this.wave * 0.45;
+    const boltSpeed = 30 + this.wave * 0.35;
     const spawnZ = boss.z - 2.6; // Behind player (~+27.9), traveling -Z toward player
 
     if (pattern === 0) {
-      // Curtain wall with a wide open dodge lane centered at chaseGapCenter
-      const volleyIdx = 3 - this.chaseSubWaveRemaining;
+      // Widely spaced curtain with a generous open dodge lane centered at chaseGapCenter
+      const volleyIdx = 2 - this.chaseSubWaveRemaining;
       const rowY = THREE.MathUtils.clamp(
-        this.shipY + (volleyIdx === 1 ? 1.8 : volleyIdx === 2 ? -1.6 : 0),
+        this.shipY + (volleyIdx === 1 ? 1.5 : 0),
         this.minY + 0.8,
         this.maxY - 0.8
       );
-      for (let tx = -10.4; tx <= 10.5; tx += 2.6) {
-        if (Math.abs(tx - this.chaseGapCenter) < 2.65) continue;
+      for (let tx = -10.2; tx <= 10.3; tx += 3.4) {
+        if (Math.abs(tx - this.chaseGapCenter) < 3.5) continue;
         _v1.set(tx - boss.x, rowY - boss.y, this.shipZ - spawnZ).normalize();
         this.spawnEnemyBolt(
           boss.x,
@@ -2313,17 +2323,17 @@ export class SpaceShooterEngine {
           _v1.z * boltSpeed,
           damage,
           'spread',
-          1.4,
+          1.35,
           true
         );
       }
     } else if (pattern === 1) {
-      // Sweeper column moving smoothly across the trench, leaving the opposite half open
-      const stepIdx = 5 - this.chaseSubWaveRemaining;
-      const frac = stepIdx / 4;
-      const sweepX = this.chaseSweepSign * (-9.6 + frac * 19.2);
-      for (let r = -1; r <= 1; r++) {
-        const ty = THREE.MathUtils.clamp(this.shipY + r * 2.2, this.minY + 0.5, this.maxY - 0.5);
+      // Sweeper pair moving across the trench in 3 readable steps, leaving most of the arena open
+      const stepIdx = 3 - this.chaseSubWaveRemaining;
+      const frac = stepIdx / 2;
+      const sweepX = this.chaseSweepSign * (-8.5 + frac * 17.0);
+      for (let r = 0; r <= 1; r++) {
+        const ty = THREE.MathUtils.clamp(this.shipY + (r === 0 ? -1.4 : 1.4), this.minY + 0.5, this.maxY - 0.5);
         _v1.set(sweepX - boss.x, ty - boss.y, this.shipZ - spawnZ).normalize();
         this.spawnEnemyBolt(
           boss.x,
@@ -2339,11 +2349,11 @@ export class SpaceShooterEngine {
         );
       }
     } else {
-      // Ring crossfire leaving a wide open core/outer dodge pocket
-      const volleyIdx = 3 - this.chaseSubWaveRemaining;
-      const ringRadius = volleyIdx % 2 === 0 ? 4.6 : 6.4;
-      const count = 6;
-      const angleOffset = volleyIdx * 0.4;
+      // Wide diamond ring leaving a large central and outer dodge space
+      const volleyIdx = 2 - this.chaseSubWaveRemaining;
+      const ringRadius = volleyIdx % 2 === 0 ? 5.4 : 7.0;
+      const count = 4;
+      const angleOffset = volleyIdx * (Math.PI / 4);
       for (let k = 0; k < count; k++) {
         const a = (k / count) * Math.PI * 2 + angleOffset;
         const tx = THREE.MathUtils.clamp(this.shipX + Math.cos(a) * ringRadius, -this.boundsX, this.boundsX);
@@ -2358,7 +2368,7 @@ export class SpaceShooterEngine {
           _v1.z * boltSpeed,
           damage,
           k % 2 === 0 ? 'spread' : 'aimed',
-          1.4,
+          1.35,
           true
         );
       }
