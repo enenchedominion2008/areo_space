@@ -498,7 +498,7 @@ export const GameModals: React.FC<GameModalsProps> = ({
         </div>
 
         <div className="title-screen__footer text-center text-[10px] sm:text-xs tracking-[0.15em] text-emerald-300/80 uppercase">
-          WASD / Touch Joystick Move · Auto-Fire Active · Q / Power Button Special · Shift Roll · Esc Pause
+          WASD / Touch Move · Space/F Afterburner · Q Special · R Missiles · C Shield Pulse · Shift Roll · Esc Pause
         </div>
 
         {showIOSGuide && (

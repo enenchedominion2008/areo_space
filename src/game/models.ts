@@ -7,6 +7,9 @@ export interface PlayerShipRig {
   rightCannon: THREE.Group;
   leftFlame: THREE.Mesh;
   rightFlame: THREE.Mesh;
+  leftAfterburnerTrail: THREE.Mesh;
+  rightAfterburnerTrail: THREE.Mesh;
+  ramProw: THREE.Mesh;
   shieldBubble: THREE.Mesh;
   leftMuzzle: THREE.Mesh;
   rightMuzzle: THREE.Mesh;
@@ -17,7 +20,9 @@ export interface EnemyRig {
   group: THREE.Group;
   hitMeshes: THREE.Mesh[];
   coreMesh: THREE.Mesh;
+  telegraphHalo: THREE.Mesh;
   baseEmissives: THREE.Color[];
+  baseEmissiveIntensities: number[];
 }
 
 function createDeltaWingShape(span: number, length: number, sweep: number): THREE.Shape {
@@ -328,8 +333,45 @@ export function createPlayerShip(jetId: JetId = 'vanguard'): PlayerShipRig {
     return flame;
   };
 
+  const buildAfterburnerTrail = (xPos: number): THREE.Mesh => {
+    const trailGeo = new THREE.ConeGeometry(0.36, 4.8, 12, 1, true);
+    trailGeo.rotateX(Math.PI / 2);
+    trailGeo.translate(0, 0, 2.4);
+    const trailMat = new THREE.MeshBasicMaterial({
+      color: 0x38bdf8,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    const trail = new THREE.Mesh(trailGeo, trailMat);
+    trail.position.set(xPos, 0.08, 1.55);
+    trail.visible = false;
+    group.add(trail);
+    return trail;
+  };
+
   const leftFlame = buildThruster(-0.42);
   const rightFlame = buildThruster(0.42);
+  const leftAfterburnerTrail = buildAfterburnerTrail(-0.42);
+  const rightAfterburnerTrail = buildAfterburnerTrail(0.42);
+
+  // Ram energy prow cone for Afterburner ram-kills
+  const ramGeo = new THREE.ConeGeometry(2.15, 4.6, 16, 1, true);
+  ramGeo.rotateX(-Math.PI / 2);
+  const ramMat = new THREE.MeshBasicMaterial({
+    color: 0x38bdf8,
+    transparent: true,
+    opacity: 0,
+    wireframe: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  const ramProw = new THREE.Mesh(ramGeo, ramMat);
+  ramProw.position.set(0, 0.08, -1.2);
+  ramProw.visible = false;
+  group.add(ramProw);
 
   // 8. Shield / Aura Sphere
   const shieldGeo = new THREE.SphereGeometry(2.45, 24, 16);
@@ -351,6 +393,9 @@ export function createPlayerShip(jetId: JetId = 'vanguard'): PlayerShipRig {
     rightCannon: rightC.cannon,
     leftFlame,
     rightFlame,
+    leftAfterburnerTrail,
+    rightAfterburnerTrail,
+    ramProw,
     shieldBubble,
     leftMuzzle: leftC.muzzle,
     rightMuzzle: rightC.muzzle,
@@ -362,50 +407,97 @@ export function createEnemyModel(kind: EnemyKind, levelSeed = 1): EnemyRig {
   const group = new THREE.Group();
   const hitMeshes: THREE.Mesh[] = [];
   const baseEmissives: THREE.Color[] = [];
+  const baseEmissiveIntensities: number[] = [];
 
   const registerHit = (mesh: THREE.Mesh) => {
     const mat = mesh.material as THREE.MeshStandardMaterial;
     hitMeshes.push(mesh);
     baseEmissives.push(mat.emissive.clone());
+    baseEmissiveIntensities.push(mat.emissiveIntensity);
   };
 
+  // High-contrast armor palette so enemies pop cleanly against dark space & colored canyons
   const armorHex =
     kind === 'bomber'
-      ? 0xb91c1c
+      ? 0xe11d48
+      : kind === 'gunship'
+      ? 0xf97316
       : kind === 'dreadnought' && levelSeed >= 13
+      ? 0xf59e0b
+      : kind === 'dreadnought'
       ? 0xea580c
-      : 0xd96b27;
+      : 0xff8c1a;
 
-  const orangeArmorMat = () =>
+  const armorEmissiveHex =
+    kind === 'bomber' ? 0x6b0f2b : kind === 'gunship' ? 0x5c2105 : 0x552205;
+
+  const primaryArmorMat = () =>
     new THREE.MeshStandardMaterial({
       color: armorHex,
-      metalness: 0.72,
-      roughness: 0.34,
-      emissive: 0x3b1203,
-      emissiveIntensity: 0.45,
+      metalness: 0.58,
+      roughness: 0.28,
+      emissive: armorEmissiveHex,
+      emissiveIntensity: 0.85,
     });
 
-  const darkCarbonMat = () =>
+  // Bright titanium-steel secondary framing for crisp silhouette separation
+  const contrastSteelMat = () =>
     new THREE.MeshStandardMaterial({
-      color: 0x251a18,
-      metalness: 0.42,
-      roughness: 0.72,
-      emissive: 0x120602,
-      emissiveIntensity: 0.25,
+      color: 0xcbd5e1,
+      metalness: 0.65,
+      roughness: 0.3,
+      emissive: 0x334155,
+      emissiveIntensity: 0.48,
     });
 
-  const amberGlowMat = new THREE.MeshStandardMaterial({
-    color: 0xffb347,
-    emissive: 0xff6a00,
-    emissiveIntensity: 2.6,
+  const edgeAccentHex =
+    kind === 'bomber'
+      ? 0xfb7185
+      : kind === 'gunship'
+      ? 0xfbbf24
+      : kind === 'dreadnought'
+      ? 0xfde047
+      : 0xfef08a;
+
+  const edgeNeonMat = () =>
+    new THREE.MeshStandardMaterial({
+      color: edgeAccentHex,
+      emissive: edgeAccentHex,
+      emissiveIntensity: 2.1,
+      roughness: 0.2,
+      metalness: 0.1,
+    });
+
+  const coreGlowMat = new THREE.MeshStandardMaterial({
+    color: 0xffedd5,
+    emissive: kind === 'bomber' ? 0xff2e93 : 0xff6a00,
+    emissiveIntensity: 2.8,
     roughness: 0.15,
     metalness: 0.1,
   });
 
+  const makeTelegraphHalo = (radius: number, zPos: number): THREE.Mesh => {
+    const halo = new THREE.Mesh(
+      new THREE.RingGeometry(radius * 0.72, radius, 24),
+      new THREE.MeshBasicMaterial({
+        color: 0xfef08a,
+        transparent: true,
+        opacity: 0,
+        blending: THREE.AdditiveBlending,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      })
+    );
+    halo.position.set(0, 0, zPos);
+    halo.visible = false;
+    group.add(halo);
+    return halo;
+  };
+
   if (kind === 'scout') {
-    const wingShape = createDeltaWingShape(1.55, 1.75, -0.25);
+    const wingShape = createDeltaWingShape(1.65, 1.85, -0.25);
     const wingGeo = new THREE.ExtrudeGeometry(wingShape, {
-      depth: 0.16,
+      depth: 0.18,
       bevelEnabled: true,
       bevelThickness: 0.05,
       bevelSize: 0.04,
@@ -413,144 +505,179 @@ export function createEnemyModel(kind: EnemyKind, levelSeed = 1): EnemyRig {
     });
     wingGeo.rotateX(Math.PI / 2);
     wingGeo.center();
-    const wings = new THREE.Mesh(wingGeo, orangeArmorMat());
+    const wings = new THREE.Mesh(wingGeo, primaryArmorMat());
     registerHit(wings);
     group.add(wings);
 
-    const body = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.42, 1.9), darkCarbonMat());
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.45, 2.0), contrastSteelMat());
     body.position.set(0, 0.08, 0);
     registerHit(body);
     group.add(body);
 
-    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.18, 0.5), amberGlowMat.clone());
-    visor.position.set(0, 0.22, 0.65);
+    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.2, 0.56), coreGlowMat.clone());
+    visor.position.set(0, 0.24, 0.7);
     registerHit(visor);
     group.add(visor);
 
     for (const side of [-1, 1]) {
-      const pod = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.2, 1.2, 8), orangeArmorMat());
+      const pod = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.22, 1.3, 8), primaryArmorMat());
       pod.rotation.x = Math.PI / 2;
-      pod.position.set(side * 0.95, -0.04, 0.15);
+      pod.position.set(side * 1.0, -0.02, 0.15);
       registerHit(pod);
       group.add(pod);
+
+      // High-contrast wingtip glow blades
+      const tipFin = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.34, 1.05), edgeNeonMat());
+      tipFin.position.set(side * 1.58, 0.14, -0.15);
+      registerHit(tipFin);
+      group.add(tipFin);
     }
 
-    const core = new THREE.Mesh(new THREE.SphereGeometry(0.24, 12, 12), amberGlowMat.clone());
-    core.position.set(0, 0.08, -0.95);
+    const core = new THREE.Mesh(new THREE.SphereGeometry(0.3, 12, 12), coreGlowMat.clone());
+    core.position.set(0, 0.08, 0.98);
     registerHit(core);
     group.add(core);
 
-    return { group, hitMeshes, coreMesh: core, baseEmissives };
+    const telegraphHalo = makeTelegraphHalo(1.35, 1.1);
+    group.scale.setScalar(1.24);
+    return { group, hitMeshes, coreMesh: core, telegraphHalo, baseEmissives, baseEmissiveIntensities };
   }
 
   if (kind === 'bomber') {
-    const hull = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.3, 2.2, 6), orangeArmorMat());
+    const hull = new THREE.Mesh(new THREE.CylinderGeometry(1.15, 1.38, 2.35, 6), primaryArmorMat());
     hull.rotation.x = Math.PI / 2;
     registerHit(hull);
     group.add(hull);
 
-    const wing = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.24, 1.3), darkCarbonMat());
+    const wing = new THREE.Mesh(new THREE.BoxGeometry(4.5, 0.28, 1.4), contrastSteelMat());
     wing.position.set(0, 0.15, 0);
     registerHit(wing);
     group.add(wing);
 
+    const dorsalSpine = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.35, 2.2), edgeNeonMat());
+    dorsalSpine.position.set(0, 0.95, 0);
+    registerHit(dorsalSpine);
+    group.add(dorsalSpine);
+
     for (const side of [-1, 1]) {
-      const bay = new THREE.Mesh(new THREE.SphereGeometry(0.48, 10, 10), orangeArmorMat());
-      bay.position.set(side * 1.5, -0.22, 0.2);
+      const bay = new THREE.Mesh(new THREE.SphereGeometry(0.54, 10, 10), primaryArmorMat());
+      bay.position.set(side * 1.62, -0.24, 0.2);
       registerHit(bay);
       group.add(bay);
+
+      const wingBeacon = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.44, 1.45), edgeNeonMat());
+      wingBeacon.position.set(side * 2.25, 0.15, 0);
+      registerHit(wingBeacon);
+      group.add(wingBeacon);
     }
 
-    const core = new THREE.Mesh(new THREE.OctahedronGeometry(0.55, 0), amberGlowMat.clone());
-    core.position.set(0, -0.25, 1.15);
+    const core = new THREE.Mesh(new THREE.OctahedronGeometry(0.62, 0), coreGlowMat.clone());
+    core.position.set(0, -0.25, 1.25);
     registerHit(core);
     group.add(core);
 
-    return { group, hitMeshes, coreMesh: core, baseEmissives };
+    const telegraphHalo = makeTelegraphHalo(1.85, 1.45);
+    group.scale.setScalar(1.22);
+    return { group, hitMeshes, coreMesh: core, telegraphHalo, baseEmissives, baseEmissiveIntensities };
   }
 
   if (kind === 'gunship') {
-    const chassis = new THREE.Mesh(new THREE.BoxGeometry(1.65, 0.62, 2.3), orangeArmorMat());
+    const chassis = new THREE.Mesh(new THREE.BoxGeometry(1.72, 0.68, 2.38), primaryArmorMat());
     registerHit(chassis);
     group.add(chassis);
 
-    const bridge = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.45, 1.15), darkCarbonMat());
-    bridge.position.set(0, 0.46, -0.2);
+    const bridge = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.5, 1.22), contrastSteelMat());
+    bridge.position.set(0, 0.5, -0.2);
     registerHit(bridge);
     group.add(bridge);
 
-    const wingBeam = new THREE.Mesh(new THREE.BoxGeometry(3.8, 0.22, 0.95), orangeArmorMat());
+    const wingBeam = new THREE.Mesh(new THREE.BoxGeometry(4.0, 0.26, 1.0), primaryArmorMat());
     wingBeam.position.set(0, 0, -0.1);
     registerHit(wingBeam);
     group.add(wingBeam);
 
+    const crest = new THREE.Mesh(new THREE.BoxGeometry(3.75, 0.09, 0.16), edgeNeonMat());
+    crest.position.set(0, 0.18, 0.35);
+    registerHit(crest);
+    group.add(crest);
+
     for (const side of [-1, 1]) {
-      const sponson = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.56, 2.5), darkCarbonMat());
-      sponson.position.set(side * 1.75, 0, 0.2);
+      const sponson = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.62, 2.65), contrastSteelMat());
+      sponson.position.set(side * 1.85, 0, 0.2);
       registerHit(sponson);
       group.add(sponson);
 
-      const cannonTip = new THREE.Mesh(new THREE.SphereGeometry(0.22, 10, 10), amberGlowMat.clone());
-      cannonTip.position.set(side * 1.75, 0, 1.48);
+      const cannonTip = new THREE.Mesh(new THREE.SphereGeometry(0.28, 10, 10), coreGlowMat.clone());
+      cannonTip.position.set(side * 1.85, 0, 1.56);
       registerHit(cannonTip);
       group.add(cannonTip);
     }
 
-    const core = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 0.35, 14), amberGlowMat.clone());
+    const core = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.38, 14), coreGlowMat.clone());
     core.rotation.x = Math.PI / 2;
-    core.position.set(0, 0.08, 1.18);
+    core.position.set(0, 0.08, 1.24);
     registerHit(core);
     group.add(core);
 
-    return { group, hitMeshes, coreMesh: core, baseEmissives };
+    const telegraphHalo = makeTelegraphHalo(1.75, 1.5);
+    group.scale.setScalar(1.2);
+    return { group, hitMeshes, coreMesh: core, telegraphHalo, baseEmissives, baseEmissiveIntensities };
   }
 
-  const scaleFactor = 1 + Math.min(0.35, (levelSeed - 1) * 0.018);
-  const mainHull = new THREE.Mesh(new THREE.BoxGeometry(3.4, 1.35, 5.2), orangeArmorMat());
+  // Dreadnought Boss: distinct multi-deck silhouette with high-contrast titanium superstructure & neon armor edges
+  const scaleFactor = 1.12 + Math.min(0.32, (levelSeed - 1) * 0.016);
+  const mainHull = new THREE.Mesh(new THREE.BoxGeometry(3.5, 1.4, 5.3), primaryArmorMat());
   registerHit(mainHull);
   group.add(mainHull);
 
-  const upperDeck = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.95, 3.2), darkCarbonMat());
-  upperDeck.position.set(0, 1.0, -0.5);
+  const upperDeck = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.0, 3.3), contrastSteelMat());
+  upperDeck.position.set(0, 1.02, -0.5);
   registerHit(upperDeck);
   group.add(upperDeck);
 
-  const commandBridge = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.72, 1.3), orangeArmorMat());
-  commandBridge.position.set(0, 1.72, -1.1);
+  const commandBridge = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.78, 1.4), primaryArmorMat());
+  commandBridge.position.set(0, 1.78, -1.1);
   registerHit(commandBridge);
   group.add(commandBridge);
 
-  const bridgeGlow = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.22, 0.35), amberGlowMat.clone());
-  bridgeGlow.position.set(0, 1.72, -0.35);
+  const bridgeGlow = new THREE.Mesh(new THREE.BoxGeometry(1.12, 0.28, 0.4), edgeNeonMat());
+  bridgeGlow.position.set(0, 1.78, -0.32);
   registerHit(bridgeGlow);
   group.add(bridgeGlow);
 
   for (const side of [-1, 1]) {
-    const wing = new THREE.Mesh(new THREE.BoxGeometry(3.1, 0.45, 2.6), orangeArmorMat());
-    wing.position.set(side * 3.1, 0.05, 0.1);
+    const wing = new THREE.Mesh(new THREE.BoxGeometry(3.25, 0.48, 2.7), primaryArmorMat());
+    wing.position.set(side * 3.15, 0.05, 0.1);
     wing.rotation.z = side * -0.1;
     registerHit(wing);
     group.add(wing);
 
-    const battery = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.48, 2.8, 10), darkCarbonMat());
+    const wingTrim = new THREE.Mesh(new THREE.BoxGeometry(3.15, 0.12, 0.22), edgeNeonMat());
+    wingTrim.position.set(side * 3.15, 0.26, 1.38);
+    wingTrim.rotation.z = side * -0.1;
+    registerHit(wingTrim);
+    group.add(wingTrim);
+
+    const battery = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.52, 2.95, 10), contrastSteelMat());
     battery.rotation.x = Math.PI / 2;
-    battery.position.set(side * 4.35, -0.1, 0.55);
+    battery.position.set(side * 4.45, -0.1, 0.55);
     registerHit(battery);
     group.add(battery);
 
-    const emitter = new THREE.Mesh(new THREE.SphereGeometry(0.35, 12, 12), amberGlowMat.clone());
-    emitter.position.set(side * 4.35, -0.1, 2.02);
+    const emitter = new THREE.Mesh(new THREE.SphereGeometry(0.42, 12, 12), coreGlowMat.clone());
+    emitter.position.set(side * 4.45, -0.1, 2.08);
     registerHit(emitter);
     group.add(emitter);
   }
 
-  const core = new THREE.Mesh(new THREE.OctahedronGeometry(0.92, 1), amberGlowMat.clone());
-  core.position.set(0, 0.05, 2.65);
+  const core = new THREE.Mesh(new THREE.OctahedronGeometry(1.02, 1), coreGlowMat.clone());
+  core.position.set(0, 0.05, 2.75);
   registerHit(core);
   group.add(core);
 
+  const telegraphHalo = makeTelegraphHalo(3.2, 3.0);
   group.scale.setScalar(scaleFactor);
-  return { group, hitMeshes, coreMesh: core, baseEmissives };
+  return { group, hitMeshes, coreMesh: core, telegraphHalo, baseEmissives, baseEmissiveIntensities };
 }
 
 export function createBombMesh(kind: BombKind): THREE.Group {
@@ -658,4 +785,76 @@ export function createFragmentMesh(kind: FragmentKind): THREE.Group {
   group.add(ring);
 
   return group;
+}
+
+export interface AreaHazardVisuals {
+  group: THREE.Group;
+  ringMesh: THREE.Mesh;
+  innerRingMesh: THREE.Mesh;
+  beamMesh: THREE.Mesh;
+}
+
+export function createAreaHazardVisuals(radius: number): AreaHazardVisuals {
+  const group = new THREE.Group();
+
+  // Target warning ring in the player's plane (z = 0)
+  const ringMesh = new THREE.Mesh(
+    new THREE.RingGeometry(radius * 0.86, radius, 32),
+    new THREE.MeshBasicMaterial({
+      color: 0xff3b30,
+      transparent: true,
+      opacity: 0.85,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    })
+  );
+  group.add(ringMesh);
+
+  // Expanding/shrinking inner lock ring showing time-to-impact
+  const innerRingMesh = new THREE.Mesh(
+    new THREE.RingGeometry(radius * 0.45, radius * 0.56, 24),
+    new THREE.MeshBasicMaterial({
+      color: 0xfef08a,
+      transparent: true,
+      opacity: 0.9,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    })
+  );
+  group.add(innerRingMesh);
+
+  // Corridor warning / strike beam stretching down Z
+  const beamGeo = new THREE.CylinderGeometry(radius * 0.35, radius * 0.35, 48, 14, 1, true);
+  beamGeo.rotateX(Math.PI / 2);
+  beamGeo.translate(0, 0, -22);
+  const beamMesh = new THREE.Mesh(
+    beamGeo,
+    new THREE.MeshBasicMaterial({
+      color: 0xff4500,
+      transparent: true,
+      opacity: 0.16,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    })
+  );
+  group.add(beamMesh);
+
+  return { group, ringMesh, innerRingMesh, beamMesh };
+}
+
+export function disposeObjectTree(root: THREE.Object3D): void {
+  root.traverse((obj) => {
+    if (obj instanceof THREE.Mesh || obj instanceof THREE.Line || obj instanceof THREE.Points) {
+      obj.geometry?.dispose();
+      const mat = obj.material;
+      if (Array.isArray(mat)) {
+        mat.forEach((m) => m.dispose());
+      } else if (mat) {
+        mat.dispose();
+      }
+    }
+  });
 }

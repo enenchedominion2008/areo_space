@@ -39,6 +39,14 @@ const INITIAL_HUD: HudSnapshot = {
   specialCooldown: 0,
   specialMaxCooldown: 11,
   specialActiveTimer: 0,
+  afterburnerCooldown: 0,
+  afterburnerMaxCooldown: 14,
+  afterburnerActiveTimer: 0,
+  missileCooldown: 0,
+  missileMaxCooldown: 9,
+  shieldPulseCooldown: 0,
+  shieldPulseMaxCooldown: 12,
+  shieldPulseActiveTimer: 0,
   barrelRollCooldown: 0,
   sectorMode: 'emerald_trench',
   arenaName: 'EMERALD CYBER-TRENCH',
@@ -204,6 +212,18 @@ export default function App() {
 
   const handleTriggerSpecial = useCallback(() => {
     engineRef.current?.triggerSpecial();
+  }, []);
+
+  const handleTriggerAfterburner = useCallback(() => {
+    engineRef.current?.triggerAfterburner();
+  }, []);
+
+  const handleTriggerMissileBarrage = useCallback(() => {
+    engineRef.current?.triggerMissileBarrage();
+  }, []);
+
+  const handleTriggerShieldPulse = useCallback(() => {
+    engineRef.current?.triggerShieldPulse();
   }, []);
 
   const handleTriggerBarrelRoll = useCallback(() => {
@@ -401,6 +421,9 @@ export default function App() {
           onToggleMute={handleToggleMute}
           onPause={handlePause}
           onTriggerSpecial={handleTriggerSpecial}
+          onTriggerAfterburner={handleTriggerAfterburner}
+          onTriggerMissileBarrage={handleTriggerMissileBarrage}
+          onTriggerShieldPulse={handleTriggerShieldPulse}
           onTriggerBarrelRoll={handleTriggerBarrelRoll}
           onTouchSteer={handleTouchSteer}
         />

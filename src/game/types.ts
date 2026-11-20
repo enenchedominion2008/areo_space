@@ -310,6 +310,8 @@ export const LEVELS: LevelConfig[] = Array.from({ length: 20 }, (_, idx) => {
   };
 });
 
+export type EnemyBoltPattern = 'aimed' | 'spread' | 'tracking';
+
 export interface RadarBlip {
   nx: number;
   nz: number;
@@ -341,6 +343,14 @@ export interface HudSnapshot {
   specialCooldown: number;
   specialMaxCooldown: number;
   specialActiveTimer: number;
+  afterburnerCooldown: number;
+  afterburnerMaxCooldown: number;
+  afterburnerActiveTimer: number;
+  missileCooldown: number;
+  missileMaxCooldown: number;
+  shieldPulseCooldown: number;
+  shieldPulseMaxCooldown: number;
+  shieldPulseActiveTimer: number;
   barrelRollCooldown: number;
   sectorMode: ArenaThemeId;
   arenaName: string;
