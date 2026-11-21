@@ -74,6 +74,7 @@ export class CyberTrenchEnvironment {
   private stars: THREE.Points;
   private tunnelOpacity = 0;
   private bossBlend = 0;
+  private chaseDim = 0;
   private targetThemeId: ArenaThemeId = 'emerald_trench';
 
   // Celestial Skyscape Groups per Arena with smooth alpha + horizon transitions
@@ -227,9 +228,10 @@ export class CyberTrenchEnvironment {
     this.waveSurfaceMat = new THREE.MeshStandardMaterial({
       color: initialTheme.cliffColorHex,
       emissive: initialTheme.cliffEmissiveHex,
-      emissiveIntensity: 0.72,
-      roughness: 0.24,
-      metalness: 0.68,
+      emissiveIntensity: 0.42,
+      roughness: 0.58,
+      metalness: 0.32,
+      envMapIntensity: 0.42,
       transparent: true,
       opacity: 0,
       depthWrite: false,
@@ -245,7 +247,7 @@ export class CyberTrenchEnvironment {
       wireframe: true,
       transparent: true,
       opacity: 0,
-      blending: THREE.AdditiveBlending,
+      blending: THREE.NormalBlending,
       depthWrite: false,
     });
     const waveWireMesh = new THREE.Mesh(this.waveGeo, this.waveWireMat);
@@ -256,9 +258,10 @@ export class CyberTrenchEnvironment {
     this.waveCrestSolidMat = new THREE.MeshStandardMaterial({
       color: initialTheme.cliffColorHex,
       emissive: initialTheme.cliffEmissiveHex,
-      emissiveIntensity: 0.8,
-      roughness: 0.3,
-      metalness: 0.6,
+      emissiveIntensity: 0.46,
+      roughness: 0.54,
+      metalness: 0.34,
+      envMapIntensity: 0.45,
       transparent: true,
       opacity: 0,
       depthWrite: false,
@@ -1405,15 +1408,23 @@ export class CyberTrenchEnvironment {
     return pair;
   }
 
-  public update(dt: number, scrollSpeed: number, themeId: ArenaThemeId, bossActive = false): void {
+  public update(
+    dt: number,
+    scrollSpeed: number,
+    themeId: ArenaThemeId,
+    bossActive = false,
+    chaseCamActive = false
+  ): void {
     this.setTheme(themeId);
     const theme = ARENA_THEMES[this.targetThemeId];
     const mode = theme.structureMode;
     const colorLerp = 1 - Math.exp(-2.4 * dt);
 
-    // Smoothly ramp boss battle atmosphere transition (0 = sector patrol, 1 = dreadnought battle)
+    // Smoothly ramp boss battle atmosphere & front-facing chase view dimming
     this.bossBlend = THREE.MathUtils.damp(this.bossBlend, bossActive ? 1 : 0, 1.85, dt);
     if (this.bossBlend < 0.002 && !bossActive) this.bossBlend = 0;
+    this.chaseDim = THREE.MathUtils.damp(this.chaseDim, chaseCamActive ? 1 : 0, 2.8, dt);
+    if (this.chaseDim < 0.002 && !chaseCamActive) this.chaseDim = 0;
 
     // Smoothly interpolate all palette colors, fog & lighting between arenas and boss encounters
     _c1.setHex(theme.bgHex).lerp(_bossBgTint, this.bossBlend * 0.52);
@@ -1434,8 +1445,10 @@ export class CyberTrenchEnvironment {
     this.floorConduitMat.color.lerp(_c1, colorLerp);
     this.structureNeonMat.color.lerp(_c1, colorLerp);
     this.cityNeonMat.color.lerp(_c1, colorLerp);
-    this.waveWireMat.color.lerp(_c1, colorLerp);
-    this.waveCrestNeonMat.color.lerp(_c1, colorLerp);
+
+    _c3.set(theme.gridColor).lerp(_bossStripTint, this.bossBlend * 0.14);
+    this.waveWireMat.color.lerp(_c3, colorLerp);
+    this.waveCrestNeonMat.color.lerp(_c3, colorLerp);
 
     _c2.setHex(theme.wireHex).lerp(_bossWireTint, this.bossBlend * 0.48);
     this.railMat.color.lerp(_c2, colorLerp);
@@ -1488,9 +1501,9 @@ export class CyberTrenchEnvironment {
     }
     this.floorBaseMat.opacity = this.floorAlpha;
     this.floorBaseMat.depthWrite = this.floorAlpha > 0.95;
-    this.floorGridMat.opacity = 0.92 * this.floorAlpha;
+    this.floorGridMat.opacity = 0.92 * this.floorAlpha * (1 - this.chaseDim * 0.4);
     this.railMat.opacity = 0.72 * this.floorAlpha;
-    this.floorConduitMat.opacity = 0.78 * this.floorAlpha;
+    this.floorConduitMat.opacity = 0.78 * this.floorAlpha * (1 - this.chaseDim * 0.3);
 
     // Apply Mode 1: Normal Canyon Structure
     this.structureGroup.visible = this.structureAlpha > 0.008;
@@ -1512,18 +1525,21 @@ export class CyberTrenchEnvironment {
       this.cityNeonMat.opacity = 0.88 * this.cityAlpha;
     }
 
-    // Apply Mode 3: Animated 3D Cyber-Waves + Crest Ridges
+    // Apply Mode 3: Animated 3D Cyber-Waves + Crest Ridges (softened glow during boss/chase camera)
     this.waveGroup.visible = this.waveAlpha > 0.008;
     this.wavePhase += scrollSpeed * dt * 0.145;
     if (this.waveGroup.visible) {
+      const waveGlowMult = (1 - this.bossBlend * 0.25) * (1 - this.chaseDim * 0.5);
       this.waveGroup.position.y = (1 - this.waveAlpha) * -14;
       this.waveSurfaceMat.opacity = 0.88 * this.waveAlpha;
       this.waveSurfaceMat.depthWrite = this.waveAlpha > 0.95;
-      this.waveWireMat.opacity = 0.74 * this.waveAlpha;
+      this.waveSurfaceMat.emissiveIntensity = 0.42 * waveGlowMult;
+      this.waveWireMat.opacity = 0.48 * this.waveAlpha * waveGlowMult;
       this.waveCrestSolidMat.opacity = 0.94 * this.waveAlpha;
       this.waveCrestSolidMat.depthWrite = this.waveAlpha > 0.95;
-      this.waveCrestWireMat.opacity = 0.85 * this.waveAlpha;
-      this.waveCrestNeonMat.opacity = 0.88 * this.waveAlpha;
+      this.waveCrestSolidMat.emissiveIntensity = 0.46 * waveGlowMult;
+      this.waveCrestWireMat.opacity = 0.64 * this.waveAlpha * waveGlowMult;
+      this.waveCrestNeonMat.opacity = 0.66 * this.waveAlpha * waveGlowMult;
 
       // Deform wave terrain vertices smoothly (calmer trough under flight lane, surging swells on sides)
       const wavePos = this.waveGeo.attributes.position as THREE.BufferAttribute;

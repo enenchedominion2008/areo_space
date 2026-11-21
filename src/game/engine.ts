@@ -1248,7 +1248,7 @@ export class SpaceShooterEngine {
       (afterburnerActive ? 56 : 0) +
       (specialBoostActive ? 20 : 0) +
       (this.barrelRollTimer > 0 ? 18 : 0);
-    this.environment.update(dt, scrollSpeed, this.sectorMode, bossActive);
+    this.environment.update(dt, scrollSpeed, this.sectorMode, bossActive, this.bossChaseBlend > 0.12);
 
     // Timers
     if (this.bannerTimer > 0) {
