@@ -98,10 +98,23 @@ function detectTouchDevice(): boolean {
 function enterMobileLandscape(): void {
   if (!detectTouchDevice()) return;
 
+  const lockLandscape = () => {
+    try {
+      const orientation = screen.orientation as ScreenOrientation & {
+        lock?: (orientation: 'landscape' | 'landscape-primary' | 'any') => Promise<void>;
+      };
+      void orientation?.lock?.('landscape')?.catch(() => {});
+    } catch {
+      // Ignore unsupported orientation lock
+    }
+  };
+
+  lockLandscape();
   const fullscreen = document.documentElement.requestFullscreen;
   if (fullscreen) {
-    void fullscreen.call(document.documentElement)
-      .then(() => screen.orientation?.lock('landscape').catch(() => {}))
+    void fullscreen
+      .call(document.documentElement)
+      .then(lockLandscape)
       .catch(() => {});
   }
 }
@@ -196,6 +209,23 @@ export default function App() {
       active = false;
     };
   }, [isOnline]);
+
+  // Lock standalone/APK mobile launches into landscape automatically when possible
+  useEffect(() => {
+    if (!detectTouchDevice()) return;
+    const isAppMode =
+      window.matchMedia('(display-mode: standalone)').matches ||
+      window.matchMedia('(display-mode: fullscreen)').matches;
+    if (!isAppMode) return;
+    try {
+      const orientation = screen.orientation as ScreenOrientation & {
+        lock?: (orientation: 'landscape') => Promise<void>;
+      };
+      void orientation?.lock?.('landscape')?.catch(() => {});
+    } catch {
+      // Ignore if browser restricts lock before user gesture
+    }
+  }, []);
 
   // Keep phone screen awake during active flight when installed or playing on mobile
   useEffect(() => {
