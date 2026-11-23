@@ -84,6 +84,20 @@ async function createServer(): Promise<void> {
     }
   });
 
+  // Serve Android Digital Asset Links explicitly for TWA APK verification
+  app.get('/.well-known/assetlinks.json', (_req, res) => {
+    const prodPath = path.join(__dirname, 'dist', '.well-known', 'assetlinks.json');
+    const devPath = path.join(__dirname, 'public', '.well-known', 'assetlinks.json');
+    const targetPath = fs.existsSync(prodPath) ? prodPath : devPath;
+    if (!fs.existsSync(targetPath)) {
+      res.status(404).json({ error: 'assetlinks.json not found' });
+      return;
+    }
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.sendFile(targetPath);
+  });
+
   if (!IS_PROD) {
     const hmrDisabled = process.env.DISABLE_HMR === 'true';
     const { createServer: createViteServer } = await import('vite');
@@ -101,6 +115,7 @@ async function createServer(): Promise<void> {
     const distDir = path.join(__dirname, 'dist');
     app.use(
       express.static(distDir, {
+        dotfiles: 'allow',
         setHeaders: (res, filePath) => {
           if (filePath.endsWith('sw.js') || filePath.endsWith('manifest.webmanifest')) {
             res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');

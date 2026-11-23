@@ -1,0 +1,8 @@
+[{
+      "relation": ["delegate_permission/common.handle_all_urls"],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "com.onrender.cyber_space_y4l2.twa",
+        "sha256_cert_fingerprints": ["5E:12:63:38:5B:C5:EC:D4:C3:8C:C7:66:AF:8A:B7:CA:37:4A:D1:B4:F7:87:04:9E:9F:A0:19:E2:74:D3:40:45"]
+      }
+    }]
