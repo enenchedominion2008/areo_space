@@ -98,16 +98,27 @@ export function createPlayerShip(
   const effectiveAccentHex = skin.accentHex ?? spec.accentHex;
   const effectiveTrailHex = trail.hex ?? effectiveAccentHex;
 
-  const hullMat = new THREE.MeshStandardMaterial({
+  const hullMat = new THREE.MeshPhysicalMaterial({
     color: effectiveHullHex,
-    metalness: skinId === 'arctic_chrome' ? 0.88 : jetId === 'chrono' ? 0.6 : 0.78,
-    roughness: skinId === 'carbon_stealth' ? 0.48 : jetId === 'chrono' ? 0.32 : 0.34,
+    metalness: skin.metalness ?? (jetId === 'chrono' ? 0.6 : 0.78),
+    roughness: skin.roughness ?? (jetId === 'chrono' ? 0.32 : 0.34),
+    clearcoat: skin.clearcoat ?? 0.35,
+    clearcoatRoughness: 0.12,
+    iridescence: skin.iridescence ?? 0,
+    iridescenceIOR: 1.45,
+    emissive: effectiveAccentHex,
+    emissiveIntensity: skin.emissiveGlow ?? 0,
   });
 
-  const secondaryArmorMat = new THREE.MeshStandardMaterial({
+  const secondaryArmorMat = new THREE.MeshPhysicalMaterial({
     color: effectiveSecondaryHex,
-    metalness: 0.64,
-    roughness: 0.42,
+    metalness: Math.min(0.95, (skin.metalness ?? 0.64) + 0.06),
+    roughness: Math.max(0.14, (skin.roughness ?? 0.42) - 0.06),
+    clearcoat: skin.clearcoat ?? 0.25,
+    clearcoatRoughness: 0.14,
+    iridescence: (skin.iridescence ?? 0) * 0.7,
+    emissive: effectiveAccentHex,
+    emissiveIntensity: (skin.emissiveGlow ?? 0) * 0.65,
   });
 
   const darkFrameMat = new THREE.MeshStandardMaterial({
@@ -118,8 +129,8 @@ export function createPlayerShip(
 
   const trimSteelMat = new THREE.MeshStandardMaterial({
     color: effectiveTrimHex,
-    metalness: 0.88,
-    roughness: 0.22,
+    metalness: 0.9,
+    roughness: 0.2,
   });
 
   const canopyMat = new THREE.MeshPhysicalMaterial({
@@ -129,22 +140,22 @@ export function createPlayerShip(
     clearcoat: 1.0,
     clearcoatRoughness: 0.04,
     emissive: effectiveAccentHex,
-    emissiveIntensity: 0.18,
+    emissiveIntensity: skin.aeroKit ? 0.28 : 0.18,
   });
 
   const neonAccentMat = new THREE.MeshStandardMaterial({
     color: effectiveAccentHex,
     emissive: effectiveAccentHex,
-    emissiveIntensity: 0.72,
-    roughness: 0.25,
+    emissiveIntensity: skin.aeroKit ? 0.95 : 0.72,
+    roughness: 0.22,
     metalness: 0.15,
   });
 
   const cyberCyanMat = new THREE.MeshStandardMaterial({
     color: effectiveTrailHex,
     emissive: effectiveTrailHex,
-    emissiveIntensity: 0.62,
-    roughness: 0.25,
+    emissiveIntensity: 0.85,
+    roughness: 0.22,
     metalness: 0.15,
   });
 
@@ -440,15 +451,59 @@ export function createPlayerShip(
     finGlow.rotation.z = side * -0.24;
     group.add(finGlow);
 
-    // Wingtip laser emitter pod / cyber-beacon
+    // Wingtip laser emitter pod / cyber-beacon + wingtip plasma thruster plume
     const wingPod = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 1.15, 8), darkFrameMat);
     wingPod.rotation.x = Math.PI / 2;
     wingPod.position.set(side * (wingSpan * 0.96), 0.02, 0.25);
     group.add(wingPod);
 
-    const wingTipLed = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 8), neonAccentMat);
+    const wingTipLed = new THREE.Mesh(new THREE.SphereGeometry(0.095, 8, 8), cyberCyanMat);
     wingTipLed.position.set(side * (wingSpan * 0.96), 0.02, -0.34);
     group.add(wingTipLed);
+
+    const wingThrusterRing = new THREE.Mesh(new THREE.TorusGeometry(0.11, 0.025, 6, 12), cyberCyanMat);
+    wingThrusterRing.position.set(side * (wingSpan * 0.96), 0.02, 0.83);
+    group.add(wingThrusterRing);
+
+    const wingThrusterConeGeo = new THREE.ConeGeometry(0.1, 0.95, 10, 1, true);
+    wingThrusterConeGeo.rotateX(Math.PI / 2);
+    wingThrusterConeGeo.translate(0, 0, 0.48);
+    const wingThrusterConeMat = new THREE.MeshBasicMaterial({
+      color: effectiveTrailHex,
+      transparent: true,
+      opacity: 0.68,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    const wingThrusterPlume = new THREE.Mesh(wingThrusterConeGeo, wingThrusterConeMat);
+    wingThrusterPlume.position.set(side * (wingSpan * 0.96), 0.02, 0.84);
+    group.add(wingThrusterPlume);
+
+    if (skin.aeroKit) {
+      // Futuristic Aero-Kit Build Upgrade: Swept dorsal energy fins, forward cyber-splitters & wing-root plasma conduits
+      const aeroBlade = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.34, 1.38), trimSteelMat);
+      aeroBlade.position.set(side * 0.52, 0.42, 0.72);
+      aeroBlade.rotation.z = side * -0.36;
+      aeroBlade.rotation.x = -0.18;
+      group.add(aeroBlade);
+
+      const aeroBladeEdge = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.06, 1.42), neonAccentMat);
+      aeroBladeEdge.position.set(side * 0.58, 0.56, 0.72);
+      aeroBladeEdge.rotation.z = side * -0.36;
+      aeroBladeEdge.rotation.x = -0.18;
+      group.add(aeroBladeEdge);
+
+      const fwdSplitter = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.05, 0.22), trimSteelMat);
+      fwdSplitter.position.set(side * 0.42, -0.02, -1.65);
+      fwdSplitter.rotation.y = side * -0.52;
+      group.add(fwdSplitter);
+
+      const wingConduit = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.05, 0.09), cyberCyanMat);
+      wingConduit.position.set(side * 1.42, 0.15, 0.55);
+      wingConduit.rotation.y = side * -0.3;
+      group.add(wingConduit);
+    }
 
     if (jetId === 'valkyrie') {
       const pod = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.38, 1.48), secondaryArmorMat);

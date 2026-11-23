@@ -8,20 +8,38 @@ interface JetPreviewCanvasProps {
   jetId: JetId;
   skinId: JetSkinId;
   trailId: TrailColorId;
+  slideDirection?: 1 | -1;
   className?: string;
+  children?: React.ReactNode;
 }
 
 export const JetPreviewCanvas: React.FC<JetPreviewCanvasProps> = ({
   jetId,
   skinId,
   trailId,
+  slideDirection = 1,
   className = '',
+  children,
 }) => {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const rigRef = useRef<PlayerShipRig | null>(null);
+  const outgoingRigRef = useRef<{ rig: PlayerShipRig; dir: number; x: number; scale: number } | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const platformRingMatRef = useRef<THREE.MeshBasicMaterial | null>(null);
   const rimLightRef = useRef<THREE.DirectionalLight | null>(null);
+
+  const prevJetIdRef = useRef<JetId | null>(null);
+  const slideDirRef = useRef<number>(slideDirection);
+  slideDirRef.current = slideDirection;
+
+  // Incoming animation state for smooth jet swaps and subtle cosmetic equip pop
+  const incomingAnimRef = useRef<{ x: number; scale: number; roll: number; pulse: number }>({
+    x: 0,
+    scale: 1.06,
+    roll: 0,
+    pulse: 0,
+  });
+
   const [webglLost, setWebglLost] = useState(false);
 
   // One-time Three.js preview studio setup
@@ -41,7 +59,7 @@ export const JetPreviewCanvas: React.FC<JetPreviewCanvasProps> = ({
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.15;
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    renderer.setSize(container.clientWidth || 320, container.clientHeight || 220);
+    renderer.setSize(container.clientWidth || 320, container.clientHeight || 260);
     renderer.domElement.style.display = 'block';
     renderer.domElement.style.width = '100%';
     renderer.domElement.style.height = '100%';
@@ -57,10 +75,10 @@ export const JetPreviewCanvas: React.FC<JetPreviewCanvasProps> = ({
     pmrem.dispose();
 
     const w = container.clientWidth || 320;
-    const h = container.clientHeight || 220;
-    const camera = new THREE.PerspectiveCamera(42, w / Math.max(1, h), 0.1, 60);
-    camera.position.set(0, 2.05, 5.4);
-    camera.lookAt(0, 0.08, 0);
+    const h = container.clientHeight || 260;
+    const camera = new THREE.PerspectiveCamera(40, w / Math.max(1, h), 0.1, 60);
+    camera.position.set(0, 2.05, 5.75);
+    camera.lookAt(0, 0.02, 0);
 
     // 3-point studio lighting
     const hemi = new THREE.HemisphereLight(0x93c5fd, 0x0f172a, 0.85);
@@ -175,20 +193,47 @@ export const JetPreviewCanvas: React.FC<JetPreviewCanvasProps> = ({
       prev = now;
 
       if (!userInteracting) {
-        yaw += dt * 0.62;
+        yaw += dt * 0.58;
       }
+
+      const dampFactor = 1 - Math.exp(-10 * dt);
+      const anim = incomingAnimRef.current;
+      anim.x = THREE.MathUtils.lerp(anim.x, 0, dampFactor);
+      anim.roll = THREE.MathUtils.lerp(anim.roll, 0, dampFactor);
+      anim.pulse = Math.max(0, anim.pulse - dt * 5.2);
+      const targetScale = 1.08 + Math.sin(anim.pulse * Math.PI) * 0.08;
+      anim.scale = THREE.MathUtils.lerp(anim.scale, targetScale, dampFactor);
 
       const rig = rigRef.current;
       if (rig) {
+        rig.group.position.set(anim.x, 0.14 + Math.sin(now * 0.0028) * 0.06, 0);
         rig.group.rotation.y = yaw;
         rig.group.rotation.x = pitch;
-        rig.group.position.y = 0.08 + Math.sin(now * 0.0028) * 0.07;
+        rig.group.rotation.z = anim.roll;
+        rig.group.scale.setScalar(anim.scale);
 
         const flicker = 0.92 + Math.sin(now * 0.04) * 0.14;
         rig.leftFlame.scale.set(1, 1, flicker);
         rig.rightFlame.scale.set(1, 1, flicker);
         if (rig.accentRing) rig.accentRing.rotation.z += dt * 2.2;
         if (rig.secondaryRing) rig.secondaryRing.rotation.z -= dt * 1.7;
+      }
+
+      const outgoing = outgoingRigRef.current;
+      if (outgoing) {
+        const targetOutX = -outgoing.dir * 6.8;
+        outgoing.x = THREE.MathUtils.lerp(outgoing.x, targetOutX, 1 - Math.exp(-11 * dt));
+        outgoing.scale = THREE.MathUtils.lerp(outgoing.scale, 0.4, 1 - Math.exp(-10 * dt));
+        outgoing.rig.group.position.x = outgoing.x;
+        outgoing.rig.group.rotation.y = yaw;
+        outgoing.rig.group.rotation.z = outgoing.dir * 0.35;
+        outgoing.rig.group.scale.setScalar(outgoing.scale);
+
+        if (Math.abs(outgoing.x) > 5.2) {
+          scene.remove(outgoing.rig.group);
+          disposeObjectTree(outgoing.rig.group);
+          outgoingRigRef.current = null;
+        }
       }
 
       padGroup.rotation.y = yaw * 0.5;
@@ -211,6 +256,11 @@ export const JetPreviewCanvas: React.FC<JetPreviewCanvasProps> = ({
         disposeObjectTree(rigRef.current.group);
         rigRef.current = null;
       }
+      if (outgoingRigRef.current) {
+        scene.remove(outgoingRigRef.current.rig.group);
+        disposeObjectTree(outgoingRigRef.current.rig.group);
+        outgoingRigRef.current = null;
+      }
       scene.remove(padGroup);
       disposeObjectTree(padGroup);
       envTarget.dispose();
@@ -229,14 +279,54 @@ export const JetPreviewCanvas: React.FC<JetPreviewCanvasProps> = ({
     const scene = sceneRef.current;
     if (!scene) return;
 
+    const jetChanged = prevJetIdRef.current !== null && prevJetIdRef.current !== jetId;
+    const prefersReducedMotion =
+      typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
+    if (outgoingRigRef.current) {
+      scene.remove(outgoingRigRef.current.rig.group);
+      disposeObjectTree(outgoingRigRef.current.rig.group);
+      outgoingRigRef.current = null;
+    }
+
     if (rigRef.current) {
-      scene.remove(rigRef.current.group);
-      disposeObjectTree(rigRef.current.group);
+      if (jetChanged && !prefersReducedMotion) {
+        outgoingRigRef.current = {
+          rig: rigRef.current,
+          dir: slideDirRef.current,
+          x: rigRef.current.group.position.x,
+          scale: rigRef.current.group.scale.x || 1.08,
+        };
+      } else {
+        scene.remove(rigRef.current.group);
+        disposeObjectTree(rigRef.current.group);
+      }
       rigRef.current = null;
     }
 
     const nextRig = createPlayerShip(jetId, skinId, trailId);
-    nextRig.group.scale.setScalar(1.06);
+    if (jetChanged && !prefersReducedMotion) {
+      const dir = slideDirRef.current;
+      incomingAnimRef.current = {
+        x: dir * 6.4,
+        scale: 0.52,
+        roll: -dir * 0.38,
+        pulse: 0,
+      };
+      nextRig.group.position.set(dir * 6.4, 0.14, 0);
+      nextRig.group.scale.setScalar(0.52);
+    } else {
+      incomingAnimRef.current = {
+        x: 0,
+        scale: 1.08,
+        roll: 0,
+        pulse: prevJetIdRef.current === jetId ? 1 : 0,
+      };
+      nextRig.group.position.set(0, 0.14, 0);
+      nextRig.group.scale.setScalar(1.08);
+    }
+
+    prevJetIdRef.current = jetId;
     scene.add(nextRig.group);
     rigRef.current = nextRig;
 
@@ -276,23 +366,7 @@ export const JetPreviewCanvas: React.FC<JetPreviewCanvasProps> = ({
         </div>
       )}
 
-      <div className="pointer-events-none absolute top-2.5 left-3 right-3 flex items-center justify-between text-[10px] tracking-[0.14em] uppercase">
-        <span className="font-bold" style={{ color: jet.primaryColor }}>
-          {jet.name} · {skin.name}
-        </span>
-        <span className="text-slate-400">Drag to rotate</span>
-      </div>
-
-      <div className="pointer-events-none absolute bottom-2 left-3 right-3 flex items-center justify-between text-[10px] text-slate-400">
-        <span>{jet.codename}</span>
-        <span className="flex items-center gap-1.5">
-          <span
-            className="inline-block w-2 h-2 rounded-full"
-            style={{ backgroundColor: fallbackColor }}
-          />
-          <span>{trail.name}</span>
-        </span>
-      </div>
+      {children}
     </div>
   );
 };

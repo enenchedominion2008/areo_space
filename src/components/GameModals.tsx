@@ -26,6 +26,8 @@ import {
   RefreshCw,
   LogOut,
   Radio,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import {
   CYBER_MODS,
@@ -139,6 +141,9 @@ export const GameModals: React.FC<GameModalsProps> = ({
   const [pilotDraft, setPilotDraft] = useState(backendState?.profile.pilot_name || 'VANGUARD-01');
   const [createLevel, setCreateLevel] = useState(1);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [jetSlideDir, setJetSlideDir] = useState<1 | -1>(1);
+  const [inViewDrawer, setInViewDrawer] = useState<'none' | 'colors' | 'thrusters'>('none');
+  const [hangarBottomTab, setHangarBottomTab] = useState<'upgrades' | 'mods'>('upgrades');
   const [showIOSGuide, setShowIOSGuide] = useState(false);
   const { isInstallable, isInstalled, isIOS, install } = usePWAInstall();
 
@@ -280,376 +285,456 @@ export const GameModals: React.FC<GameModalsProps> = ({
               </>
             )}
 
-            {activeTab === 'hangar' && (
-              <>
-                <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-[#040a12] border border-slate-700/80 rounded-sm">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-slate-400 uppercase">Callsign:</span>
-                    <input
-                      type="text"
-                      maxLength={20}
-                      value={pilotDraft}
-                      onChange={(e) => setPilotDraft(e.target.value)}
-                      className="px-2.5 py-1 bg-[#081320] border border-emerald-500/40 text-white text-xs font-bold uppercase tracking-wider focus:outline-none focus:border-emerald-400"
-                    />
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => onUpdatePilotName(pilotDraft)}
-                      className="px-2.5 py-1 bg-emerald-500/20 hover:bg-emerald-500/35 border border-emerald-400/60 text-emerald-200 text-xs font-bold uppercase"
-                    >
-                      Save
-                    </button>
-                  </div>
-                  <div className="text-sm font-bold text-amber-300 tabular-nums">
-                    CREDITS: {(profile?.credits ?? 0).toLocaleString()} CR
-                  </div>
-                </div>
+            {activeTab === 'hangar' &&
+              (() => {
+                const jetKeys = Object.keys(JETS) as JetId[];
+                const currentJetIdx = Math.max(0, jetKeys.indexOf(selectedJetId));
+                const activeSkin = JET_SKINS[selectedSkinId];
+                const activeTrail = TRAIL_COLORS[selectedTrailId];
 
-                {/* Live 3D Visual Hangar Showcase */}
-                <div className="grid grid-cols-1 md:grid-cols-5 gap-3 bg-[#040a12] border border-emerald-500/35 p-3 rounded-sm">
-                  <JetPreviewCanvas
-                    jetId={selectedJetId}
-                    skinId={selectedSkinId}
-                    trailId={selectedTrailId}
-                    className="md:col-span-3 h-52 sm:h-60"
-                  />
+                const stepJet = (dir: 1 | -1) => {
+                  setJetSlideDir(dir);
+                  const nextIdx = (currentJetIdx + dir + jetKeys.length) % jetKeys.length;
+                  onSelectJet(jetKeys[nextIdx]);
+                };
 
-                  <div className="md:col-span-2 flex flex-col justify-between gap-2.5 p-2 bg-[#06101b] border border-slate-800 rounded-sm">
-                    <div>
-                      <div className="text-[10px] tracking-[0.18em] text-emerald-300 uppercase">
-                        Active Airframe Inspection
-                      </div>
-                      <h3 className="mt-0.5 text-lg font-extrabold" style={{ color: activeJet.primaryColor }}>
-                        {activeJet.name}
-                      </h3>
-                      <div className="text-[11px] text-slate-400">
-                        {activeJet.role} · {activeJet.codename}
-                      </div>
+                const jumpToJet = (idx: number) => {
+                  if (idx === currentJetIdx) return;
+                  setJetSlideDir(idx > currentJetIdx ? 1 : -1);
+                  onSelectJet(jetKeys[idx]);
+                };
 
-                      <div className="mt-2.5 grid grid-cols-2 gap-1.5 text-[11px]">
-                        <div className="p-1.5 bg-[#040a12] border border-slate-800">
-                          <span className="text-slate-400 block text-[9px]">SPEED</span>
-                          <span className="text-sky-300 font-bold tabular-nums">
-                            {Math.round(activeJet.speedMult * 100)}%
-                          </span>
-                        </div>
-                        <div className="p-1.5 bg-[#040a12] border border-slate-800">
-                          <span className="text-slate-400 block text-[9px]">FIREPOWER</span>
-                          <span className="text-amber-300 font-bold tabular-nums">
-                            {Math.round(activeJet.damageMult * 100)}%
-                          </span>
-                        </div>
-                        <div className="p-1.5 bg-[#040a12] border border-slate-800">
-                          <span className="text-slate-400 block text-[9px]">HULL / SHIELD</span>
-                          <span className="text-emerald-300 font-bold tabular-nums">
-                            {activeJet.hullBonus >= 0 ? `+${activeJet.hullBonus}` : activeJet.hullBonus} /{' '}
-                            {activeJet.shieldBonus >= 0 ? `+${activeJet.shieldBonus}` : activeJet.shieldBonus}
-                          </span>
-                        </div>
-                        <div className="p-1.5 bg-[#040a12] border border-slate-800">
-                          <span className="text-slate-400 block text-[9px]">CYBER-MODS</span>
-                          <span className="text-fuchsia-300 font-bold tabular-nums">
-                            {equippedMods.length}/2 ACTIVE
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="p-2 bg-black/45 border border-slate-800 rounded-sm">
-                      <div className="text-[11px] font-bold text-amber-300 flex items-center justify-between">
-                        <span>⚡ {activeJet.specialName}</span>
-                        <span className="text-[10px] text-slate-400">{activeJet.specialCooldown}s CD</span>
-                      </div>
-                      <p className="mt-1 text-[11px] text-slate-300 leading-snug">{activeJet.specialDesc}</p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Jet Fleet Selection (8 Jets including Cyberpunk Designs) */}
-                <div>
-                  <div className="text-xs tracking-[0.18em] text-emerald-300 uppercase mb-2 flex items-center gap-1.5">
-                    <Plane className="w-4 h-4" /> Select Combat &amp; Cyberpunk Jet ([Q] / Mobile Power Button)
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {(Object.keys(JETS) as JetId[]).map((jetKey) => {
-                      const jet = JETS[jetKey];
-                      const isSelected = selectedJetId === jet.id;
-                      return (
+                return (
+                  <div className="space-y-4">
+                    {/* Top Callsign & Credits Row */}
+                    <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-[#040a12] border border-slate-700/80 rounded-sm">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-slate-400">Callsign</span>
+                        <input
+                          type="text"
+                          maxLength={20}
+                          value={pilotDraft}
+                          onChange={(e) => setPilotDraft(e.target.value)}
+                          className="px-2.5 py-1.5 bg-[#081320] border border-emerald-500/40 text-white text-xs font-bold uppercase tracking-wider focus:outline-none focus:border-emerald-400"
+                        />
                         <button
-                          key={jet.id}
                           type="button"
                           disabled={busy}
-                          onClick={() => onSelectJet(jet.id)}
-                          className={`text-left p-3 rounded-sm border transition-colors ${
-                            isSelected
-                              ? 'bg-emerald-950/45 border-emerald-400 shadow-[0_0_18px_rgba(0,255,136,0.2)]'
-                              : 'bg-[#040a12] border-slate-700/80 hover:border-slate-500'
-                          }`}
+                          onClick={() => onUpdatePilotName(pilotDraft)}
+                          className="px-3 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/35 border border-emerald-400/60 text-emerald-200 text-xs font-bold whitespace-nowrap shrink-0"
                         >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="font-bold text-sm" style={{ color: jet.primaryColor }}>
-                              {jet.name}
-                            </span>
-                            <span
-                              className={`text-[10px] px-2 py-0.5 font-bold uppercase border whitespace-nowrap shrink-0 ${
-                                isSelected
-                                  ? 'bg-emerald-500/25 border-emerald-400 text-emerald-200'
-                                  : 'border-slate-600 text-slate-400'
-                              }`}
-                            >
-                              {isSelected ? 'ACTIVE JET' : 'PREVIEW'}
-                            </span>
-                          </div>
-                          <div className="text-[11px] text-slate-400 mt-0.5">
-                            {jet.role} · Speed {Math.round(jet.speedMult * 100)}% · Dmg{' '}
-                            {Math.round(jet.damageMult * 100)}%
-                          </div>
-                          <div className="mt-1.5 text-[11px] text-slate-300 leading-snug">
-                            <span className="text-amber-300 font-bold">⚡ {jet.specialName}:</span> {jet.specialDesc}
-                          </div>
+                          Save
                         </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Unlockable Jet Skins & Custom Thruster Trails */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <div className="text-xs tracking-[0.18em] text-sky-300 uppercase mb-2 flex items-center gap-1.5">
-                      <Palette className="w-4 h-4" /> Jet Liveries (Skins)
+                      </div>
+                      <div className="text-sm font-bold text-amber-300 tabular-nums">
+                        {(profile?.credits ?? 0).toLocaleString()} CR
+                      </div>
                     </div>
-                    <div className="space-y-2">
-                      {(Object.keys(JET_SKINS) as JetSkinId[]).map((skinKey) => {
-                        const skin = JET_SKINS[skinKey];
-                        const unlocked = unlockedSkins.includes(skin.id);
-                        const equipped = selectedSkinId === skin.id;
-                        const canAfford = (profile?.credits ?? 0) >= skin.cost;
-                        return (
-                          <div
-                            key={skin.id}
-                            className={`flex items-center justify-between gap-2 p-2.5 rounded-sm border ${
-                              equipped
-                                ? 'bg-sky-950/40 border-sky-400'
-                                : 'bg-[#040a12] border-slate-700/80'
-                            }`}
+
+                    {/* Hero 3D Jet Showcase with < > Carousel & In-View Color / Wingtip Thrusters Controls */}
+                    <JetPreviewCanvas
+                      jetId={selectedJetId}
+                      skinId={selectedSkinId}
+                      trailId={selectedTrailId}
+                      slideDirection={jetSlideDir}
+                      className="h-80 sm:h-[370px]"
+                    >
+                      {/* Top Info Overlay (Unboxed, Non-Obstructing) */}
+                      <div className="pointer-events-none absolute top-3 left-3.5 right-3.5 flex items-start justify-between gap-2">
+                        <div>
+                          <div className="flex items-center gap-2 text-[11px] text-slate-300 tabular-nums">
+                            <span>
+                              Jet {currentJetIdx + 1} of {jetKeys.length}
+                            </span>
+                            <span aria-hidden="true">·</span>
+                            <span>{activeJet.role}</span>
+                          </div>
+                          <h3
+                            className="text-lg sm:text-xl font-extrabold tracking-wide leading-tight"
+                            style={{ color: activeJet.primaryColor }}
                           >
-                            <div className="flex items-center gap-2.5 min-w-0">
-                              <span
-                                className="w-4 h-4 rounded-sm border border-white/30 shrink-0"
-                                style={{ backgroundColor: skin.swatchColor }}
-                              />
-                              <div className="min-w-0">
-                                <div className="text-xs font-bold text-white truncate">{skin.name}</div>
-                                <div className="text-[10px] text-slate-400">
-                                  {unlocked ? (equipped ? 'Currently Equipped' : 'Unlocked') : `${skin.cost} CR`}
-                                </div>
-                              </div>
+                            {activeJet.name}
+                          </h3>
+                        </div>
+                        <span className="hidden sm:inline text-[11px] text-slate-400 bg-[#030812]/70 px-2 py-1 rounded-sm">
+                          Drag jet to rotate
+                        </span>
+                      </div>
+
+                      {/* Left (<) Previous Jet Button */}
+                      <button
+                        type="button"
+                        aria-label="Previous Jet"
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={() => stepJet(-1)}
+                        className="absolute left-2.5 top-1/2 -translate-y-1/2 z-10 w-11 h-11 rounded-full bg-[#040b14]/85 hover:bg-emerald-500/25 border border-emerald-400/60 text-white flex items-center justify-center transition-transform hover:scale-105 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+                      >
+                        <ChevronLeft className="w-6 h-6" />
+                      </button>
+
+                      {/* Right (>) Next Jet Button */}
+                      <button
+                        type="button"
+                        aria-label="Next Jet"
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={() => stepJet(1)}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 z-10 w-11 h-11 rounded-full bg-[#040b14]/85 hover:bg-emerald-500/25 border border-emerald-400/60 text-white flex items-center justify-center transition-transform hover:scale-105 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+                      >
+                        <ChevronRight className="w-6 h-6" />
+                      </button>
+
+                      {/* Bottom In-View Drawers + Color & Wingtip Thrusters Triggers */}
+                      <div
+                        onPointerDown={(e) => e.stopPropagation()}
+                        className="absolute bottom-0 inset-x-0 z-10 p-3 bg-gradient-to-t from-[#02060d]/95 via-[#02060d]/70 to-transparent space-y-2"
+                      >
+                        {/* In-View Livery Color Selector (Jet Remains Clearly Visible Above) */}
+                        {inViewDrawer === 'colors' && (
+                          <div className="p-2.5 bg-[#040c17]/92 backdrop-blur-md border border-sky-400/50 rounded-sm space-y-2">
+                            <div className="flex items-center justify-between text-[11px]">
+                              <span className="font-bold text-sky-200">Livery Color</span>
+                              <button
+                                type="button"
+                                aria-label="Close colors"
+                                onClick={() => setInViewDrawer('none')}
+                                className="p-0.5 text-slate-400 hover:text-white"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
                             </div>
+                            <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 max-h-36 overflow-y-auto pr-0.5">
+                              {(Object.keys(JET_SKINS) as JetSkinId[]).map((skinKey) => {
+                                const skin = JET_SKINS[skinKey];
+                                const unlocked = unlockedSkins.includes(skin.id) || skin.cost === 0;
+                                const equipped = selectedSkinId === skin.id;
+                                const canAfford = (profile?.credits ?? 0) >= skin.cost;
+                                return (
+                                  <button
+                                    key={skin.id}
+                                    type="button"
+                                    disabled={busy || (!unlocked && !canAfford)}
+                                    onClick={() => onSelectCosmetic('skin', skin.id)}
+                                    className={`flex items-center gap-2 px-2 py-1.5 rounded-sm border text-left transition-colors disabled:opacity-45 ${
+                                      equipped
+                                        ? 'bg-sky-500/25 border-sky-300 text-white'
+                                        : 'bg-[#07111f]/90 hover:border-sky-400/70 border-slate-700 text-slate-200'
+                                    }`}
+                                  >
+                                    <span
+                                      className="w-4 h-4 rounded-sm border border-white/40 shrink-0"
+                                      style={{
+                                        backgroundColor: skin.swatchColor,
+                                        boxShadow: skin.aeroKit ? `0 0 8px ${skin.swatchColor}` : undefined,
+                                      }}
+                                    />
+                                    <div className="min-w-0">
+                                      <div className="text-[11px] font-bold truncate">{skin.name}</div>
+                                      <div className="text-[10px] text-slate-400 tabular-nums">
+                                        {equipped ? 'Equipped' : unlocked ? (skin.cost === 0 ? 'Free' : 'Owned') : `${skin.cost} CR`}
+                                      </div>
+                                    </div>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* In-View Wingtip Thrusters Selector (Jet Remains Clearly Visible Above) */}
+                        {inViewDrawer === 'thrusters' && (
+                          <div className="p-2.5 bg-[#040c17]/92 backdrop-blur-md border border-fuchsia-400/50 rounded-sm space-y-2">
+                            <div className="flex items-center justify-between text-[11px]">
+                              <span className="font-bold text-fuchsia-200">Wingtip &amp; Thruster Glow</span>
+                              <button
+                                type="button"
+                                aria-label="Close wingtip thrusters"
+                                onClick={() => setInViewDrawer('none')}
+                                className="p-0.5 text-slate-400 hover:text-white"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                            <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 max-h-36 overflow-y-auto pr-0.5">
+                              {(Object.keys(TRAIL_COLORS) as TrailColorId[]).map((trailKey) => {
+                                const trail = TRAIL_COLORS[trailKey];
+                                const unlocked = unlockedTrails.includes(trail.id) || trail.cost === 0;
+                                const equipped = selectedTrailId === trail.id;
+                                const canAfford = (profile?.credits ?? 0) >= trail.cost;
+                                return (
+                                  <button
+                                    key={trail.id}
+                                    type="button"
+                                    disabled={busy || (!unlocked && !canAfford)}
+                                    onClick={() => onSelectCosmetic('trail', trail.id)}
+                                    className={`flex items-center gap-2 px-2 py-1.5 rounded-sm border text-left transition-colors disabled:opacity-45 ${
+                                      equipped
+                                        ? 'bg-fuchsia-500/25 border-fuchsia-300 text-white'
+                                        : 'bg-[#07111f]/90 hover:border-fuchsia-400/70 border-slate-700 text-slate-200'
+                                    }`}
+                                  >
+                                    <span
+                                      className="w-3.5 h-3.5 rounded-full border border-white/40 shrink-0"
+                                      style={{
+                                        backgroundColor: trail.cssColor,
+                                        boxShadow: `0 0 8px ${trail.cssColor}`,
+                                      }}
+                                    />
+                                    <div className="min-w-0">
+                                      <div className="text-[11px] font-bold truncate">{trail.name}</div>
+                                      <div className="text-[10px] text-slate-400 tabular-nums">
+                                        {equipped ? 'Active' : unlocked ? (trail.cost === 0 ? 'Free' : 'Owned') : `${trail.cost} CR`}
+                                      </div>
+                                    </div>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* In-View Action Buttons & Carousel Dots */}
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
                             <button
                               type="button"
-                              disabled={busy || equipped || (!unlocked && !canAfford)}
-                              onClick={() => onSelectCosmetic('skin', skin.id)}
-                              className={`px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider border rounded-sm whitespace-nowrap shrink-0 disabled:opacity-45 ${
-                                equipped
-                                  ? 'bg-sky-500/30 border-sky-300 text-sky-100'
-                                  : unlocked
-                                  ? 'bg-emerald-500/20 hover:bg-emerald-500/35 border-emerald-400/60 text-emerald-200'
-                                  : 'bg-amber-500/20 hover:bg-amber-500/35 border-amber-400/70 text-amber-200'
+                              onClick={() =>
+                                setInViewDrawer((prev) => (prev === 'colors' ? 'none' : 'colors'))
+                              }
+                              className={`px-3 py-2 rounded-sm border text-xs font-bold flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 ${
+                                inViewDrawer === 'colors'
+                                  ? 'bg-sky-500/30 border-sky-300 text-white'
+                                  : 'bg-[#040c17]/90 hover:border-sky-400 border-slate-600 text-sky-100'
                               }`}
                             >
-                              {equipped ? 'EQUIPPED' : unlocked ? 'EQUIP' : `BUY · ${skin.cost} CR`}
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="text-xs tracking-[0.18em] text-fuchsia-300 uppercase mb-2 flex items-center gap-1.5">
-                      <Sparkles className="w-4 h-4" /> Wingtip &amp; Thruster Trails
-                    </div>
-                    <div className="space-y-2">
-                      {(Object.keys(TRAIL_COLORS) as TrailColorId[]).map((trailKey) => {
-                        const trail = TRAIL_COLORS[trailKey];
-                        const unlocked = unlockedTrails.includes(trail.id);
-                        const equipped = selectedTrailId === trail.id;
-                        const canAfford = (profile?.credits ?? 0) >= trail.cost;
-                        return (
-                          <div
-                            key={trail.id}
-                            className={`flex items-center justify-between gap-2 p-2.5 rounded-sm border ${
-                              equipped
-                                ? 'bg-fuchsia-950/40 border-fuchsia-400'
-                                : 'bg-[#040a12] border-slate-700/80'
-                            }`}
-                          >
-                            <div className="flex items-center gap-2.5 min-w-0">
+                              <Palette className="w-3.5 h-3.5 text-sky-300" />
+                              <span>Colors</span>
                               <span
-                                className="w-4 h-4 rounded-full border border-white/30 shrink-0"
+                                className="w-3 h-3 rounded-sm border border-white/40"
+                                style={{ backgroundColor: activeSkin.swatchColor }}
+                              />
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setInViewDrawer((prev) => (prev === 'thrusters' ? 'none' : 'thrusters'))
+                              }
+                              className={`px-3 py-2 rounded-sm border text-xs font-bold flex items-center gap-2 transition-colors whitespace-nowrap shrink-0 ${
+                                inViewDrawer === 'thrusters'
+                                  ? 'bg-fuchsia-500/30 border-fuchsia-300 text-white'
+                                  : 'bg-[#040c17]/90 hover:border-fuchsia-400 border-slate-600 text-fuchsia-100'
+                              }`}
+                            >
+                              <Sparkles className="w-3.5 h-3.5 text-fuchsia-300" />
+                              <span>Wingtip Thrusters</span>
+                              <span
+                                className="w-2.5 h-2.5 rounded-full border border-white/40"
                                 style={{
-                                  backgroundColor: trail.cssColor,
-                                  boxShadow: `0 0 8px ${trail.cssColor}`,
+                                  backgroundColor: activeTrail.cssColor,
+                                  boxShadow: `0 0 6px ${activeTrail.cssColor}`,
                                 }}
                               />
-                              <div className="min-w-0">
-                                <div className="text-xs font-bold text-white truncate">{trail.name}</div>
-                                <div className="text-[10px] text-slate-400">
-                                  {unlocked ? (equipped ? 'Currently Active' : 'Unlocked') : `${trail.cost} CR`}
-                                </div>
-                              </div>
-                            </div>
-                            <button
-                              type="button"
-                              disabled={busy || equipped || (!unlocked && !canAfford)}
-                              onClick={() => onSelectCosmetic('trail', trail.id)}
-                              className={`px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider border rounded-sm whitespace-nowrap shrink-0 disabled:opacity-45 ${
-                                equipped
-                                  ? 'bg-fuchsia-500/30 border-fuchsia-300 text-fuchsia-100'
-                                  : unlocked
-                                  ? 'bg-emerald-500/20 hover:bg-emerald-500/35 border-emerald-400/60 text-emerald-200'
-                                  : 'bg-amber-500/20 hover:bg-amber-500/35 border-amber-400/70 text-amber-200'
-                              }`}
-                            >
-                              {equipped ? 'ACTIVE' : unlocked ? 'EQUIP' : `BUY · ${trail.cost} CR`}
                             </button>
                           </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
 
-                {/* Equipable Cyber-Mods (Max 2 Passive Chips) */}
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="text-xs tracking-[0.18em] text-cyan-300 uppercase flex items-center gap-1.5">
-                      <Cpu className="w-4 h-4" /> Equipable Cyber-Mods (Passive Chips)
+                          {/* 8-Jet Selector Dots */}
+                          <div className="flex items-center gap-1.5 px-1" aria-label="Jet lineup">
+                            {jetKeys.map((key, idx) => {
+                              const active = idx === currentJetIdx;
+                              return (
+                                <button
+                                  key={key}
+                                  type="button"
+                                  aria-label={`Select ${JETS[key].name}`}
+                                  onClick={() => jumpToJet(idx)}
+                                  className={`h-2 rounded-full transition-all ${
+                                    active
+                                      ? 'w-5 bg-emerald-400'
+                                      : 'w-2 bg-slate-600 hover:bg-slate-400'
+                                  }`}
+                                />
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    </JetPreviewCanvas>
+
+                    {/* Concise Jet Performance & Special Strip */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                      <div className="p-2.5 bg-[#040a12] border border-slate-800 rounded-sm">
+                        <div className="text-[10px] text-slate-400">Speed</div>
+                        <div className="text-sm font-bold text-sky-300 tabular-nums">
+                          {Math.round(activeJet.speedMult * 100)}%
+                        </div>
+                      </div>
+                      <div className="p-2.5 bg-[#040a12] border border-slate-800 rounded-sm">
+                        <div className="text-[10px] text-slate-400">Firepower</div>
+                        <div className="text-sm font-bold text-amber-300 tabular-nums">
+                          {Math.round(activeJet.damageMult * 100)}%
+                        </div>
+                      </div>
+                      <div className="p-2.5 bg-[#040a12] border border-slate-800 rounded-sm">
+                        <div className="text-[10px] text-slate-400">Hull / Shield Bonus</div>
+                        <div className="text-sm font-bold text-emerald-300 tabular-nums">
+                          {activeJet.hullBonus >= 0 ? `+${activeJet.hullBonus}` : activeJet.hullBonus} /{' '}
+                          {activeJet.shieldBonus >= 0 ? `+${activeJet.shieldBonus}` : activeJet.shieldBonus}
+                        </div>
+                      </div>
+                      <div className="p-2.5 bg-[#040a12] border border-slate-800 rounded-sm">
+                        <div className="text-[10px] text-amber-300 font-bold truncate">
+                          Special · {activeJet.specialName}
+                        </div>
+                        <div className="text-[11px] text-slate-300 truncate" title={activeJet.specialDesc}>
+                          {activeJet.specialDesc}
+                        </div>
+                      </div>
                     </div>
-                    <span className="text-xs font-bold text-fuchsia-300 tabular-nums">
-                      SLOTS: {equippedMods.length}/2 EQUIPPED
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    {(Object.keys(CYBER_MODS) as CyberModId[]).map((modKey) => {
-                      const mod = CYBER_MODS[modKey];
-                      const unlocked = unlockedMods.includes(mod.id);
-                      const equipped = equippedMods.includes(mod.id);
-                      const canAfford = (profile?.credits ?? 0) >= mod.cost;
-                      return (
-                        <div
-                          key={mod.id}
-                          className={`p-3 rounded-sm border flex flex-col justify-between gap-2 ${
-                            equipped
-                              ? 'bg-cyan-950/40 border-cyan-400 shadow-[0_0_14px_rgba(34,211,238,0.18)]'
-                              : 'bg-[#040a12] border-slate-700/80'
+
+                    {/* Clean Toggle for Upgrades vs Cyber-Mods */}
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-1 p-1 bg-[#040a12] border border-slate-800 rounded-sm w-fit">
+                        <button
+                          type="button"
+                          onClick={() => setHangarBottomTab('upgrades')}
+                          className={`px-3 py-1.5 text-xs font-bold rounded-sm transition-colors whitespace-nowrap shrink-0 flex items-center gap-1.5 ${
+                            hangarBottomTab === 'upgrades'
+                              ? 'bg-emerald-500/20 border border-emerald-400/60 text-emerald-200'
+                              : 'text-slate-400 hover:text-white'
                           }`}
                         >
-                          <div>
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-xs font-bold" style={{ color: mod.accentColor }}>
-                                {mod.name}
-                              </span>
-                              <span className="text-[10px] text-slate-400 tabular-nums">
-                                {equipped ? 'EQUIPPED' : unlocked ? 'OWNED' : `${mod.cost} CR`}
-                              </span>
-                            </div>
-                            <p className="mt-1 text-[11px] text-slate-300 leading-snug">{mod.desc}</p>
-                          </div>
-                          <button
-                            type="button"
-                            disabled={busy || (!unlocked && !canAfford)}
-                            onClick={() => onManageMod(mod.id, unlocked ? 'toggle' : 'buy')}
-                            className={`w-full py-1.5 text-[11px] font-bold uppercase tracking-wider border rounded-sm transition-colors disabled:opacity-45 ${
-                              equipped
-                                ? 'bg-cyan-500/30 hover:bg-cyan-500/45 border-cyan-300 text-cyan-100'
-                                : unlocked
-                                ? 'bg-emerald-500/20 hover:bg-emerald-500/35 border-emerald-400/60 text-emerald-200'
-                                : 'bg-amber-500/20 hover:bg-amber-500/35 border-amber-400/70 text-amber-200'
-                            }`}
-                          >
-                            {equipped
-                              ? 'UNEQUIP CHIP'
-                              : unlocked
-                              ? equippedMods.length >= 2
-                                ? 'SWAP INTO SLOT'
-                                : 'EQUIP CHIP'
-                              : `UNLOCK · ${mod.cost} CR`}
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
+                          <Wrench className="w-3.5 h-3.5" />
+                          <span>Ship Upgrades</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setHangarBottomTab('mods')}
+                          className={`px-3 py-1.5 text-xs font-bold rounded-sm transition-colors whitespace-nowrap shrink-0 flex items-center gap-1.5 ${
+                            hangarBottomTab === 'mods'
+                              ? 'bg-cyan-500/20 border border-cyan-400/60 text-cyan-200'
+                              : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          <Cpu className="w-3.5 h-3.5" />
+                          <span>Cyber-Mods ({equippedMods.length}/2)</span>
+                        </button>
+                      </div>
 
-                {/* Persistent Upgrades */}
-                {profile && (
-                  <div>
-                    <div className="text-xs tracking-[0.18em] text-amber-300 uppercase mb-2">
-                      Fleet Armor &amp; Core Upgrades
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      {[
-                        {
-                          key: 'hull_upgrade' as const,
-                          label: 'Reinforced Hull',
-                          desc: '+25 Max Hull Armor per tier',
-                          level: profile.hull_upgrade,
-                          icon: Heart,
-                        },
-                        {
-                          key: 'shield_upgrade' as const,
-                          label: 'Deflector Matrix',
-                          desc: '+25 Max Shield per tier',
-                          level: profile.shield_upgrade,
-                          icon: Shield,
-                        },
-                        {
-                          key: 'laser_upgrade' as const,
-                          label: 'Laser Overclock',
-                          desc: '+22% Weapon Output per tier',
-                          level: profile.laser_upgrade,
-                          icon: Zap,
-                        },
-                      ].map((item) => {
-                        const Icon = item.icon;
-                        const maxed = item.level >= 5;
-                        const cost = 120 * (item.level + 1);
-                        const canAfford = profile.credits >= cost;
-                        return (
-                          <div
-                            key={item.key}
-                            className="p-3 bg-[#040a12] border border-slate-700/80 rounded-sm flex flex-col justify-between gap-2.5"
-                          >
-                            <div>
-                              <div className="flex items-center justify-between text-white font-bold text-xs sm:text-sm">
-                                <span className="flex items-center gap-1.5">
-                                  <Icon className="w-4 h-4 text-emerald-300" />
-                                  {item.label}
-                                </span>
-                                <span className="text-xs text-emerald-300 tabular-nums">LVL {item.level}/5</span>
+                      {hangarBottomTab === 'upgrades' && profile && (
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          {[
+                            {
+                              key: 'hull_upgrade' as const,
+                              label: 'Reinforced Hull',
+                              desc: '+25 Max Hull Armor per tier',
+                              level: profile.hull_upgrade,
+                              icon: Heart,
+                            },
+                            {
+                              key: 'shield_upgrade' as const,
+                              label: 'Deflector Matrix',
+                              desc: '+25 Max Shield per tier',
+                              level: profile.shield_upgrade,
+                              icon: Shield,
+                            },
+                            {
+                              key: 'laser_upgrade' as const,
+                              label: 'Laser Overclock',
+                              desc: '+22% Weapon Output per tier',
+                              level: profile.laser_upgrade,
+                              icon: Zap,
+                            },
+                          ].map((item) => {
+                            const Icon = item.icon;
+                            const maxed = item.level >= 5;
+                            const cost = 120 * (item.level + 1);
+                            const canAfford = profile.credits >= cost;
+                            return (
+                              <div
+                                key={item.key}
+                                className="p-3 bg-[#040a12] border border-slate-700/80 rounded-sm flex flex-col justify-between gap-2.5"
+                              >
+                                <div>
+                                  <div className="flex items-center justify-between text-white font-bold text-xs sm:text-sm">
+                                    <span className="flex items-center gap-1.5">
+                                      <Icon className="w-4 h-4 text-emerald-300" />
+                                      {item.label}
+                                    </span>
+                                    <span className="text-xs text-emerald-300 tabular-nums">LVL {item.level}/5</span>
+                                  </div>
+                                  <p className="mt-1 text-[11px] text-slate-400">{item.desc}</p>
+                                </div>
+
+                                <button
+                                  type="button"
+                                  disabled={busy || maxed || !canAfford}
+                                  onClick={() => onPurchaseUpgrade(item.key)}
+                                  className="w-full py-2 text-xs font-bold uppercase tracking-wider border rounded-sm transition-colors disabled:opacity-45 bg-emerald-500/20 hover:bg-emerald-500/35 border-emerald-400/60 text-emerald-200"
+                                >
+                                  {maxed ? 'Maxed Out' : `Upgrade · ${cost} CR`}
+                                </button>
                               </div>
-                              <p className="mt-1 text-[11px] text-slate-400">{item.desc}</p>
-                            </div>
+                            );
+                          })}
+                        </div>
+                      )}
 
-                            <button
-                              type="button"
-                              disabled={busy || maxed || !canAfford}
-                              onClick={() => onPurchaseUpgrade(item.key)}
-                              className="w-full py-2 text-xs font-bold uppercase tracking-wider border rounded-sm transition-colors disabled:opacity-45 bg-emerald-500/20 hover:bg-emerald-500/35 border-emerald-400/60 text-emerald-200"
-                            >
-                              {maxed ? 'MAXED OUT' : `UPGRADE · ${cost} CR`}
-                            </button>
-                          </div>
-                        );
-                      })}
+                      {hangarBottomTab === 'mods' && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                          {(Object.keys(CYBER_MODS) as CyberModId[]).map((modKey) => {
+                            const mod = CYBER_MODS[modKey];
+                            const unlocked = unlockedMods.includes(mod.id);
+                            const equipped = equippedMods.includes(mod.id);
+                            const canAfford = (profile?.credits ?? 0) >= mod.cost;
+                            return (
+                              <div
+                                key={mod.id}
+                                className={`p-3 rounded-sm border flex flex-col justify-between gap-2 ${
+                                  equipped
+                                    ? 'bg-cyan-950/40 border-cyan-400 shadow-[0_0_14px_rgba(34,211,238,0.18)]'
+                                    : 'bg-[#040a12] border-slate-700/80'
+                                }`}
+                              >
+                                <div>
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="text-xs font-bold" style={{ color: mod.accentColor }}>
+                                      {mod.name}
+                                    </span>
+                                    <span className="text-[10px] text-slate-400 tabular-nums">
+                                      {equipped ? 'Equipped' : unlocked ? 'Owned' : `${mod.cost} CR`}
+                                    </span>
+                                  </div>
+                                  <p className="mt-1 text-[11px] text-slate-300 leading-snug">{mod.desc}</p>
+                                </div>
+                                <button
+                                  type="button"
+                                  disabled={busy || (!unlocked && !canAfford)}
+                                  onClick={() => onManageMod(mod.id, unlocked ? 'toggle' : 'buy')}
+                                  className={`w-full py-1.5 text-[11px] font-bold uppercase tracking-wider border rounded-sm transition-colors disabled:opacity-45 ${
+                                    equipped
+                                      ? 'bg-cyan-500/30 hover:bg-cyan-500/45 border-cyan-300 text-cyan-100'
+                                      : unlocked
+                                      ? 'bg-emerald-500/20 hover:bg-emerald-500/35 border-emerald-400/60 text-emerald-200'
+                                      : 'bg-amber-500/20 hover:bg-amber-500/35 border-amber-400/70 text-amber-200'
+                                  }`}
+                                >
+                                  {equipped
+                                    ? 'Unequip'
+                                    : unlocked
+                                    ? equippedMods.length >= 2
+                                      ? 'Swap In'
+                                      : 'Equip'
+                                    : `Unlock · ${mod.cost} CR`}
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   </div>
-                )}
-              </>
-            )}
+                );
+              })()}
 
             {activeTab === 'leaderboard' && (
               <>

@@ -128,6 +128,7 @@ export default function App() {
   const mpClientRef = useRef<MultiplayerClient | null>(null);
   const coopPlayerIdRef = useRef<string | null>(null);
   const coopRoomRef = useRef<RoomStatePayload | null>(null);
+  const jetSelectSeqRef = useRef(0);
 
   const initialRoomCode = getInitialRoomCodeFromUrl();
 
@@ -622,6 +623,7 @@ export default function App() {
 
   const handleSelectJet = useCallback(
     async (jetId: JetId) => {
+      const seq = ++jetSelectSeqRef.current;
       const prof = backendStateRef.current?.profile;
       engineRef.current?.setLoadout(
         jetId,
@@ -629,17 +631,27 @@ export default function App() {
         prof?.selected_trail || 'jet_default',
         prof?.equipped_mods || []
       );
-      setBusy(true);
+      if (backendStateRef.current) {
+        const optimisticState: BackendState = {
+          ...backendStateRef.current,
+          profile: {
+            ...backendStateRef.current.profile,
+            selected_jet: jetId,
+          },
+        };
+        backendStateRef.current = optimisticState;
+        setBackendState(optimisticState);
+      }
       try {
         const state = await selectJetInPython(jetId);
+        if (seq !== jetSelectSeqRef.current) return;
         backendStateRef.current = state;
         setBackendState(state);
         syncCoopProfile(state.profile);
-        showToast(`JET SELECTED: ${jetId.toUpperCase()}`);
       } catch (err) {
-        showToast(err instanceof Error ? err.message : 'Jet selection failed');
-      } finally {
-        setBusy(false);
+        if (seq === jetSelectSeqRef.current) {
+          showToast(err instanceof Error ? err.message : 'Jet selection failed');
+        }
       }
     },
     [showToast, syncCoopProfile]

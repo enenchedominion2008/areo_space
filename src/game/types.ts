@@ -35,9 +35,29 @@ export type WeaponPattern = 'twin' | 'spread' | 'stream' | 'plasma' | 'seeker';
 
 export type FragmentKind = 'spread' | 'stream' | 'plasma' | 'seeker' | 'shield' | 'hull' | 'wingman';
 
-export type JetSkinId = 'factory' | 'carbon_stealth' | 'solar_gold' | 'holo_magenta' | 'arctic_chrome';
+export type JetSkinId =
+  | 'factory'
+  | 'cyber_cobalt'
+  | 'emerald_matrix'
+  | 'carbon_stealth'
+  | 'crimson_vortex'
+  | 'solar_gold'
+  | 'holo_magenta'
+  | 'quantum_prism'
+  | 'arctic_chrome'
+  | 'void_obsidian';
 
-export type TrailColorId = 'jet_default' | 'cyan_ion' | 'crimson_flare' | 'acid_emerald' | 'solar_gold' | 'ultraviolet';
+export type TrailColorId =
+  | 'jet_default'
+  | 'hyper_aqua'
+  | 'cyan_ion'
+  | 'crimson_flare'
+  | 'acid_emerald'
+  | 'plasma_cobalt'
+  | 'solar_gold'
+  | 'ultraviolet'
+  | 'cyber_prism'
+  | 'antimatter_violet';
 
 export type CyberModId =
   | 'shield_siphon'
@@ -56,6 +76,12 @@ export interface JetSkinSpec {
   secondaryHex?: number;
   trimHex?: number;
   accentHex?: number;
+  metalness?: number;
+  roughness?: number;
+  clearcoat?: number;
+  iridescence?: number;
+  emissiveGlow?: number;
+  aeroKit?: boolean;
 }
 
 export const JET_SKINS: Record<JetSkinId, JetSkinSpec> = {
@@ -65,15 +91,69 @@ export const JET_SKINS: Record<JetSkinId, JetSkinSpec> = {
     cost: 0,
     swatchColor: '#94a3b8',
   },
+  cyber_cobalt: {
+    id: 'cyber_cobalt',
+    name: 'Hyper Cobalt',
+    cost: 0,
+    swatchColor: '#00e5ff',
+    hullHex: 0x0b1f3a,
+    secondaryHex: 0x164e87,
+    trimHex: 0x7dd3fc,
+    accentHex: 0x00e5ff,
+    metalness: 0.84,
+    roughness: 0.2,
+    clearcoat: 1.0,
+    iridescence: 0.45,
+    emissiveGlow: 0.14,
+    aeroKit: true,
+  },
+  emerald_matrix: {
+    id: 'emerald_matrix',
+    name: 'Matrix Neon',
+    cost: 0,
+    swatchColor: '#00ff88',
+    hullHex: 0x091c16,
+    secondaryHex: 0x114232,
+    trimHex: 0x6ee7b7,
+    accentHex: 0x00ff88,
+    metalness: 0.82,
+    roughness: 0.22,
+    clearcoat: 0.9,
+    iridescence: 0.35,
+    emissiveGlow: 0.15,
+    aeroKit: true,
+  },
   carbon_stealth: {
     id: 'carbon_stealth',
     name: 'Carbon Stealth',
     cost: 250,
     swatchColor: '#38bdf8',
-    hullHex: 0x0f1520,
+    hullHex: 0x0b1019,
     secondaryHex: 0x1e293b,
     trimHex: 0x64748b,
     accentHex: 0x38bdf8,
+    metalness: 0.72,
+    roughness: 0.36,
+    clearcoat: 0.55,
+    iridescence: 0.2,
+    emissiveGlow: 0.08,
+    aeroKit: true,
+  },
+  crimson_vortex: {
+    id: 'crimson_vortex',
+    name: 'Crimson Overdrive',
+    cost: 320,
+    swatchColor: '#ff2a6d',
+    hullHex: 0x260814,
+    secondaryHex: 0x6b102d,
+    trimHex: 0xfda4af,
+    accentHex: 0xff2a6d,
+    metalness: 0.86,
+    roughness: 0.2,
+    clearcoat: 1.0,
+    iridescence: 0.55,
+    emissiveGlow: 0.16,
+    aeroKit: true,
   },
   solar_gold: {
     id: 'solar_gold',
@@ -84,6 +164,12 @@ export const JET_SKINS: Record<JetSkinId, JetSkinSpec> = {
     secondaryHex: 0x92400e,
     trimHex: 0xfbbf24,
     accentHex: 0xfef08a,
+    metalness: 0.92,
+    roughness: 0.16,
+    clearcoat: 1.0,
+    iridescence: 0.35,
+    emissiveGlow: 0.14,
+    aeroKit: true,
   },
   holo_magenta: {
     id: 'holo_magenta',
@@ -94,6 +180,28 @@ export const JET_SKINS: Record<JetSkinId, JetSkinSpec> = {
     secondaryHex: 0x581c87,
     trimHex: 0xf472b6,
     accentHex: 0xf0abfc,
+    metalness: 0.85,
+    roughness: 0.18,
+    clearcoat: 1.0,
+    iridescence: 0.85,
+    emissiveGlow: 0.18,
+    aeroKit: true,
+  },
+  quantum_prism: {
+    id: 'quantum_prism',
+    name: 'Quantum Prism',
+    cost: 550,
+    swatchColor: '#22d3ee',
+    hullHex: 0x161c36,
+    secondaryHex: 0x2b3668,
+    trimHex: 0xa5f3fc,
+    accentHex: 0x22d3ee,
+    metalness: 0.9,
+    roughness: 0.14,
+    clearcoat: 1.0,
+    iridescence: 1.0,
+    emissiveGlow: 0.16,
+    aeroKit: true,
   },
   arctic_chrome: {
     id: 'arctic_chrome',
@@ -102,8 +210,30 @@ export const JET_SKINS: Record<JetSkinId, JetSkinSpec> = {
     swatchColor: '#2dd4bf',
     hullHex: 0x94a3b8,
     secondaryHex: 0x475569,
-    trimHex: 0xe2e8f0,
+    trimHex: 0xf8fafc,
     accentHex: 0x2dd4bf,
+    metalness: 0.95,
+    roughness: 0.12,
+    clearcoat: 1.0,
+    iridescence: 0.65,
+    emissiveGlow: 0.1,
+    aeroKit: true,
+  },
+  void_obsidian: {
+    id: 'void_obsidian',
+    name: 'Void Singularity',
+    cost: 750,
+    swatchColor: '#a855f7',
+    hullHex: 0x07060f,
+    secondaryHex: 0x1c1233,
+    trimHex: 0xc084fc,
+    accentHex: 0xa855f7,
+    metalness: 0.88,
+    roughness: 0.18,
+    clearcoat: 1.0,
+    iridescence: 0.9,
+    emissiveGlow: 0.22,
+    aeroKit: true,
   },
 };
 
@@ -117,11 +247,15 @@ export interface TrailColorSpec {
 
 export const TRAIL_COLORS: Record<TrailColorId, TrailColorSpec> = {
   jet_default: { id: 'jet_default', name: 'Jet Signature', cost: 0, cssColor: '#cbd5e1' },
+  hyper_aqua: { id: 'hyper_aqua', name: 'Hyper Aqua', cost: 0, cssColor: '#00f5d4', hex: 0x00f5d4 },
   cyan_ion: { id: 'cyan_ion', name: 'Cyan Ion', cost: 150, cssColor: '#22d3ee', hex: 0x22d3ee },
   crimson_flare: { id: 'crimson_flare', name: 'Crimson Flare', cost: 200, cssColor: '#fb7185', hex: 0xf43f5e },
   acid_emerald: { id: 'acid_emerald', name: 'Acid Emerald', cost: 250, cssColor: '#4ade80', hex: 0x4ade80 },
+  plasma_cobalt: { id: 'plasma_cobalt', name: 'Plasma Cobalt', cost: 280, cssColor: '#3b82f6', hex: 0x3b82f6 },
   solar_gold: { id: 'solar_gold', name: 'Solar Gold', cost: 300, cssColor: '#fbbf24', hex: 0xfbbf24 },
   ultraviolet: { id: 'ultraviolet', name: 'Ultraviolet', cost: 350, cssColor: '#e879f9', hex: 0xd946ef },
+  cyber_prism: { id: 'cyber_prism', name: 'Neon Mint-Ice', cost: 400, cssColor: '#5eead4', hex: 0x5eead4 },
+  antimatter_violet: { id: 'antimatter_violet', name: 'Antimatter Core', cost: 450, cssColor: '#a855f7', hex: 0xa855f7 },
 };
 
 export interface CyberModSpec {

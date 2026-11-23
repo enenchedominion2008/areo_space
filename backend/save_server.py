@@ -31,18 +31,27 @@ VALID_JETS = (
 )
 SKIN_COSTS = {
     "factory": 0,
+    "cyber_cobalt": 0,
+    "emerald_matrix": 0,
     "carbon_stealth": 250,
+    "crimson_vortex": 320,
     "solar_gold": 400,
     "holo_magenta": 500,
+    "quantum_prism": 550,
     "arctic_chrome": 650,
+    "void_obsidian": 750,
 }
 TRAIL_COSTS = {
     "jet_default": 0,
+    "hyper_aqua": 0,
     "cyan_ion": 150,
     "crimson_flare": 200,
     "acid_emerald": 250,
+    "plasma_cobalt": 280,
     "solar_gold": 300,
     "ultraviolet": 350,
+    "cyber_prism": 400,
+    "antimatter_violet": 450,
 }
 MOD_COSTS = {
     "shield_siphon": 220,
