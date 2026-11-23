@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { attachCoopWebSocketServer } from './backend/coopWsServer';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -58,6 +59,7 @@ async function createServer(): Promise<void> {
 
   const app = express();
   const httpServer = http.createServer(app);
+  const closeCoopWs = attachCoopWebSocketServer(httpServer);
   app.use(express.json({ limit: '1mb' }));
 
   // Proxy all /api/* requests directly to the Python SQLite backend
@@ -109,11 +111,12 @@ async function createServer(): Promise<void> {
   }
 
   const server = httpServer.listen(PORT, '0.0.0.0', () => {
-    console.log(`[server] Vanguard Vector running at http://0.0.0.0:${PORT} (Python backend -> ${PYTHON_URL})`);
+    console.log(`[server] Vanguard Vector running at http://0.0.0.0:${PORT} (Python backend -> ${PYTHON_URL}, Co-op WS -> /ws)`);
   });
 
   const cleanup = () => {
     shuttingDown = true;
+    closeCoopWs();
     server.close();
     if (pythonProc && !pythonProc.killed) {
       pythonProc.kill('SIGTERM');

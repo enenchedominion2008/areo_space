@@ -14,7 +14,7 @@ import {
   BookOpen,
   Users,
 } from 'lucide-react';
-import { CYBER_MODS, type HudSnapshot, type WeaponPattern } from '../game/types';
+import { CYBER_MODS, JETS, type HudSnapshot, type WeaponPattern } from '../game/types';
 import type { TutorialStepId } from '../game/tutorial';
 
 interface GameHudProps {
@@ -153,14 +153,29 @@ export const GameHud: React.FC<GameHudProps> = ({
         <div className="bg-[#040b14]/78 border border-emerald-400/30 px-2.5 py-1.5 rounded-sm">
           <div className="flex items-center gap-1.5 text-[9px] sm:text-[10px] tracking-[0.14em] text-emerald-300/75 uppercase">
             <span>LVL {hud.wave}/{hud.totalLevels}</span>
-            <span className="hidden md:inline text-slate-500">·</span>
-            <span className="hidden md:inline text-slate-400">{hud.arenaName}</span>
+            {hud.coop?.active ? (
+              <>
+                <span className="text-sky-400">·</span>
+                <span className="text-sky-300 font-bold">2P · {hud.coop.roomCode}</span>
+              </>
+            ) : (
+              <>
+                <span className="hidden md:inline text-slate-500">·</span>
+                <span className="hidden md:inline text-slate-400">{hud.arenaName}</span>
+              </>
+            )}
           </div>
           <div className="text-lg sm:text-2xl font-bold tracking-wider text-white tabular-nums leading-tight">
-            {hud.score.toLocaleString()}
+            {hud.coop?.active
+              ? `TEAM ${hud.coop.teamScore.toLocaleString()}`
+              : hud.score.toLocaleString()}
           </div>
           <div className="flex items-center gap-2 text-[9px] text-slate-400 tabular-nums">
-            <span>HI {hud.highScore.toLocaleString()}</span>
+            {hud.coop?.active ? (
+              <span>YOU {hud.score.toLocaleString()}</span>
+            ) : (
+              <span>HI {hud.highScore.toLocaleString()}</span>
+            )}
             <span>·</span>
             <span>
               {hud.waveProgress}/{hud.waveTotal}
@@ -203,6 +218,14 @@ export const GameHud: React.FC<GameHudProps> = ({
                     )}%`,
                   }}
                 />
+              </div>
+            </div>
+          )}
+
+          {hud.coop?.active && hud.coop.localDowned && (
+            <div className="w-full bg-[#1b0910]/92 border border-amber-400/85 px-2.5 py-1 rounded-sm text-center">
+              <div className="text-[9px] sm:text-[10px] tracking-[0.14em] text-amber-200 font-bold uppercase tabular-nums">
+                REBOOTING {hud.coop.localRespawnTimeLeft.toFixed(1)}s · PARTNER HOLDING ARENA
               </div>
             </div>
           )}
@@ -290,6 +313,19 @@ export const GameHud: React.FC<GameHudProps> = ({
               {hud.radarBlips.map((blip, idx) => {
                 const cx = 50 + blip.nx * 40;
                 const cy = 78 - blip.nz * 66;
+                if (blip.kind === 'partner') {
+                  return (
+                    <circle
+                      key={idx}
+                      cx={cx}
+                      cy={cy}
+                      r={3.8}
+                      fill="#38bdf8"
+                      stroke="#ffffff"
+                      strokeWidth="1"
+                    />
+                  );
+                }
                 const r = blip.kind === 'dreadnought' ? 4.4 : blip.kind === 'bomb' ? 2.6 : 2.8;
                 const fill =
                   blip.kind === 'bomb'
@@ -308,6 +344,63 @@ export const GameHud: React.FC<GameHudProps> = ({
       <div className="flex items-end justify-between gap-2">
         {/* Bottom-Left: Wingman Timer, Compact Shield/Hull Bars + Optional Virtual Joystick */}
         <div className="flex flex-col items-start gap-2">
+          {hud.coop?.active && hud.coop.partner && (
+            <div className="w-36 sm:w-52 bg-[#04111d]/88 border border-sky-400/55 px-2.5 py-1.5 rounded-sm">
+              <div className="flex items-center justify-between gap-1 text-[9px] sm:text-[10px] font-bold tracking-wider uppercase">
+                <span className="text-sky-200 truncate">
+                  P{hud.coop.partner.slot} · {hud.coop.partner.pilotName}
+                </span>
+                <span
+                  className={`shrink-0 tabular-nums ${
+                    !hud.coop.partner.connected
+                      ? 'text-rose-400'
+                      : hud.coop.partner.downed
+                      ? 'text-amber-300'
+                      : 'text-emerald-300'
+                  }`}
+                >
+                  {!hud.coop.partner.connected
+                    ? 'LEFT'
+                    : hud.coop.partner.downed
+                    ? `${hud.coop.partner.respawnTimeLeft.toFixed(1)}s`
+                    : 'LIVE'}
+                </span>
+              </div>
+              <div className="mt-0.5 flex items-center justify-between text-[8px] text-slate-400 tabular-nums">
+                <span className="truncate">{JETS[hud.coop.partner.jetId]?.name || hud.coop.partner.jetId}</span>
+                <span className="shrink-0 ml-1">
+                  {hud.coop.partner.score.toLocaleString()} · {hud.coop.partner.kills}K
+                </span>
+              </div>
+              <div className="mt-1 space-y-1">
+                <div className="h-1 w-full bg-slate-900 overflow-hidden">
+                  <div
+                    className="h-full bg-sky-400 transition-[width] duration-75"
+                    style={{
+                      width: `${Math.max(
+                        0,
+                        Math.min(100, (hud.coop.partner.shield / Math.max(1, hud.coop.partner.maxShield)) * 100)
+                      )}%`,
+                    }}
+                  />
+                </div>
+                <div className="h-1 w-full bg-slate-900 overflow-hidden">
+                  <div
+                    className={`h-full transition-[width] duration-75 ${
+                      hud.coop.partner.downed ? 'bg-amber-400' : 'bg-emerald-400'
+                    }`}
+                    style={{
+                      width: `${Math.max(
+                        0,
+                        Math.min(100, (hud.coop.partner.health / Math.max(1, hud.coop.partner.maxHealth)) * 100)
+                      )}%`,
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
           {hud.wingmanTimeLeft > 0 && (
             <div className="w-36 sm:w-52 bg-[#04121d]/88 border border-sky-400/70 px-2.5 py-1.5 rounded-sm">
               <div className="flex items-center justify-between text-[9px] sm:text-[10px] font-bold tracking-wider text-sky-200 uppercase mb-0.5">

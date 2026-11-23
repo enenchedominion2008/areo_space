@@ -11,10 +11,17 @@ import {
   submitScoreToPython,
   updatePilotNameInPython,
 } from './api/saveClient';
+import { MultiplayerClient, type WsConnStatus } from './api/multiplayerClient';
 import { GameHud } from './components/GameHud';
-import { GameModals } from './components/GameModals';
+import { GameModals, type ModalTab } from './components/GameModals';
 import { TutorialOverlay } from './components/TutorialOverlay';
 import { SpaceShooterEngine } from './game/engine';
+import type {
+  CoopMatchEndPayload,
+  OpenRoomListing,
+  RoomPlayerProfile,
+  RoomStatePayload,
+} from './game/multiplayerTypes';
 import { TUTORIAL_STEPS, type TutorialStepId } from './game/tutorial';
 import {
   CYBER_MODS,
@@ -24,6 +31,7 @@ import {
   type HudSnapshot,
   type JetId,
   type JetSkinId,
+  type PilotProfile,
   type SaveSlotRecord,
   type TrailColorId,
 } from './game/types';
@@ -97,10 +105,31 @@ function enterMobileLandscape(): void {
   }
 }
 
+function profileToRoomProfile(profile?: PilotProfile | null): RoomPlayerProfile {
+  return {
+    pilotName: profile?.pilot_name || 'VANGUARD-01',
+    jetId: profile?.selected_jet || 'vanguard',
+    skinId: profile?.selected_skin || 'factory',
+    trailId: profile?.selected_trail || 'jet_default',
+    equippedMods: profile?.equipped_mods || [],
+  };
+}
+
+function getInitialRoomCodeFromUrl(): string {
+  if (typeof window === 'undefined') return '';
+  const code = new URLSearchParams(window.location.search).get('room') || '';
+  return code.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4);
+}
+
 export default function App() {
   const canvasMountRef = useRef<HTMLDivElement | null>(null);
   const engineRef = useRef<SpaceShooterEngine | null>(null);
   const backendStateRef = useRef<BackendState | null>(null);
+  const mpClientRef = useRef<MultiplayerClient | null>(null);
+  const coopPlayerIdRef = useRef<string | null>(null);
+  const coopRoomRef = useRef<RoomStatePayload | null>(null);
+
+  const initialRoomCode = getInitialRoomCodeFromUrl();
 
   const [hud, setHud] = useState<HudSnapshot>(INITIAL_HUD);
   const [backendState, setBackendState] = useState<BackendState | null>(null);
@@ -110,10 +139,18 @@ export default function App() {
   const [touchMode, setTouchMode] = useState<boolean>(() => detectTouchDevice());
   const [lastRunCredits, setLastRunCredits] = useState<number | null>(null);
   const [toast, setToast] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'none' | 'slots' | 'hangar' | 'leaderboard'>('none');
+  const [activeTab, setActiveTab] = useState<ModalTab>(() => (initialRoomCode ? 'coop' : 'none'));
   const [tutorialMode, setTutorialMode] = useState<'inactive' | 'paused_step' | 'live_play'>('inactive');
   const [tutorialStepIndex, setTutorialStepIndex] = useState(0);
-  const [showIntroVideo, setShowIntroVideo] = useState(() => !detectTouchDevice());
+  const [showIntroVideo, setShowIntroVideo] = useState(() => !detectTouchDevice() && !initialRoomCode);
+
+  const [wsStatus, setWsStatus] = useState<WsConnStatus>('disconnected');
+  const [coopRoom, setCoopRoom] = useState<RoomStatePayload | null>(null);
+  const [coopPlayerId, setCoopPlayerId] = useState<string | null>(null);
+  const [openRooms, setOpenRooms] = useState<OpenRoomListing[]>([]);
+  const [coopError, setCoopError] = useState<string | null>(null);
+  const [coopJoinCodeDraft, setCoopJoinCodeDraft] = useState<string>(initialRoomCode);
+  const [coopMatchSummary, setCoopMatchSummary] = useState<CoopMatchEndPayload | null>(null);
 
   const handleSkipIntro = useCallback(() => setShowIntroVideo(false), []);
 
@@ -197,6 +234,34 @@ export default function App() {
             })
             .catch(() => {});
         },
+        onCoopSend: (msg) => {
+          mpClientRef.current?.send(msg);
+        },
+        onCoopMatchEnd: (summary) => {
+          setCoopMatchSummary(summary);
+          const prof = backendStateRef.current?.profile;
+          const localSlot =
+            coopRoomRef.current?.players.find((p) => p.playerId === coopPlayerIdRef.current)?.slot ?? 1;
+          const localScore = localSlot === 1 ? summary.p1Score : summary.p2Score;
+          const localKills = localSlot === 1 ? summary.p1Kills : summary.p2Kills;
+          submitScoreToPython({
+            pilotName: prof?.pilot_name || 'VANGUARD-01',
+            selectedJet: prof?.selected_jet || 'vanguard',
+            score: localScore,
+            wave: summary.wave,
+            kills: localKills,
+            maxMultiplier: 1,
+            accuracy: 0,
+            clearAutosave: false,
+          })
+            .then((res) => {
+              backendStateRef.current = res.state;
+              setBackendState(res.state);
+              setLastRunCredits(res.earned_credits);
+              engine.setHighScore(res.state.profile.high_score ?? localScore);
+            })
+            .catch(() => {});
+        },
       },
       backendStateRef.current?.profile.high_score ?? 0,
       backendStateRef.current?.profile.selected_jet ?? 'vanguard'
@@ -218,8 +283,142 @@ export default function App() {
     };
   }, [showToast]);
 
+  // WebSocket Multiplayer Client lifecycle
+  useEffect(() => {
+    const client = new MultiplayerClient({
+      onStatusChange: (status) => {
+        setWsStatus(status);
+        if (status === 'connected') {
+          client.refreshRooms();
+        }
+      },
+      onWelcome: (id) => {
+        coopPlayerIdRef.current = id;
+        setCoopPlayerId(id);
+      },
+      onRoomList: (rooms) => {
+        setOpenRooms(rooms);
+      },
+      onRoomState: (room, yourId) => {
+        coopPlayerIdRef.current = yourId;
+        coopRoomRef.current = room;
+        setCoopPlayerId(yourId);
+        setCoopRoom(room);
+        setCoopError(null);
+      },
+      onRoomError: (message) => {
+        setCoopError(message);
+        showToast(message);
+      },
+      onGameStarted: (room) => {
+        const myId = coopPlayerIdRef.current;
+        const localPlayer = room.players.find((p) => p.playerId === myId);
+        const partner = room.players.find((p) => p.playerId !== myId);
+        if (!localPlayer || !partner) {
+          setCoopError('Waiting for both pilots to connect before launching.');
+          return;
+        }
+        enterMobileLandscape();
+        setShowIntroVideo(false);
+        coopRoomRef.current = room;
+        setCoopRoom(room);
+        setCoopMatchSummary(null);
+        setLastRunCredits(null);
+        setActiveTab('none');
+        engineRef.current?.startCoopGame(backendStateRef.current?.profile, {
+          roomCode: room.code,
+          localSlot: localPlayer.slot,
+          localName: localPlayer.pilotName,
+          partner,
+          startLevel: room.startLevel,
+        });
+      },
+      onReturnedLobby: (room) => {
+        coopRoomRef.current = room;
+        setCoopRoom(room);
+      },
+      onGameMessage: (msg) => {
+        engineRef.current?.handleCoopMessage(msg);
+      },
+    });
+    mpClientRef.current = client;
+
+    if (initialRoomCode) {
+      client.connect();
+    }
+
+    return () => {
+      client.dispose();
+      mpClientRef.current = null;
+    };
+  }, [initialRoomCode, showToast]);
+
+  const syncCoopProfile = useCallback((profile?: PilotProfile | null) => {
+    if (!mpClientRef.current || !coopRoom) return;
+    mpClientRef.current.updateProfile(profileToRoomProfile(profile));
+  }, [coopRoom]);
+
+  const handleOpenCoop = useCallback(() => {
+    setCoopError(null);
+    setActiveTab('coop');
+    mpClientRef.current?.connect();
+    mpClientRef.current?.refreshRooms();
+  }, []);
+
+  const handleCreateCoopRoom = useCallback((startLevel: number) => {
+    setCoopError(null);
+    mpClientRef.current?.createRoom(profileToRoomProfile(backendStateRef.current?.profile), startLevel);
+  }, []);
+
+  const handleJoinCoopRoom = useCallback((code: string) => {
+    setCoopError(null);
+    mpClientRef.current?.joinRoom(code, profileToRoomProfile(backendStateRef.current?.profile));
+  }, []);
+
+  const handleLeaveCoopRoom = useCallback(() => {
+    mpClientRef.current?.leaveRoom();
+    coopRoomRef.current = null;
+    setCoopRoom(null);
+    setCoopError(null);
+    mpClientRef.current?.refreshRooms();
+  }, []);
+
+  const handleToggleCoopReady = useCallback(() => {
+    if (!coopRoom) return;
+    const me = coopRoom.players.find((p) => p.playerId === coopPlayerIdRef.current);
+    if (!me) return;
+    mpClientRef.current?.setReady(!me.ready);
+  }, [coopRoom]);
+
+  const handleSetCoopLevel = useCallback((level: number) => {
+    mpClientRef.current?.setStartLevel(level);
+  }, []);
+
+  const handleStartCoopMatch = useCallback(() => {
+    mpClientRef.current?.startGame();
+  }, []);
+
+  const handleRefreshCoopRooms = useCallback(() => {
+    mpClientRef.current?.connect();
+    mpClientRef.current?.refreshRooms();
+  }, []);
+
+  const handleReturnToCoopLobby = useCallback(() => {
+    setCoopMatchSummary(null);
+    setLastRunCredits(null);
+    engineRef.current?.returnToTitle();
+    if (coopRoom) {
+      mpClientRef.current?.returnToLobby();
+    } else {
+      mpClientRef.current?.connect();
+      mpClientRef.current?.refreshRooms();
+    }
+    setActiveTab('coop');
+  }, [coopRoom]);
+
   const handleStartNewGame = useCallback((startLevel = 1) => {
     enterMobileLandscape();
+    setCoopMatchSummary(null);
     setLastRunCredits(null);
     setActiveTab('none');
     engineRef.current?.startNewGame(backendStateRef.current?.profile, startLevel);
@@ -435,6 +634,7 @@ export default function App() {
         const state = await selectJetInPython(jetId);
         backendStateRef.current = state;
         setBackendState(state);
+        syncCoopProfile(state.profile);
         showToast(`JET SELECTED: ${jetId.toUpperCase()}`);
       } catch (err) {
         showToast(err instanceof Error ? err.message : 'Jet selection failed');
@@ -442,7 +642,7 @@ export default function App() {
         setBusy(false);
       }
     },
-    [showToast]
+    [showToast, syncCoopProfile]
   );
 
   const handleSelectCosmetic = useCallback(
@@ -458,6 +658,7 @@ export default function App() {
           state.profile.selected_trail || 'jet_default',
           state.profile.equipped_mods || []
         );
+        syncCoopProfile(state.profile);
         showToast(`${kind === 'skin' ? 'LIVERY' : 'TRAIL'} UPDATED`);
       } catch (err) {
         showToast(err instanceof Error ? err.message : 'Cosmetic update failed');
@@ -465,7 +666,7 @@ export default function App() {
         setBusy(false);
       }
     },
-    [showToast]
+    [showToast, syncCoopProfile]
   );
 
   const handleManageMod = useCallback(
@@ -481,6 +682,7 @@ export default function App() {
           state.profile.selected_trail || 'jet_default',
           state.profile.equipped_mods || []
         );
+        syncCoopProfile(state.profile);
         const modName = CYBER_MODS[modId]?.name || modId;
         const nowEquipped = state.profile.equipped_mods.includes(modId);
         showToast(
@@ -496,7 +698,7 @@ export default function App() {
         setBusy(false);
       }
     },
-    [showToast]
+    [showToast, syncCoopProfile]
   );
 
   const handleUpdatePilotName = useCallback(
@@ -506,6 +708,7 @@ export default function App() {
         const state = await updatePilotNameInPython(name);
         backendStateRef.current = state;
         setBackendState(state);
+        syncCoopProfile(state.profile);
         showToast('PILOT CALLSIGN UPDATED');
       } catch (err) {
         showToast(err instanceof Error ? err.message : 'Update failed');
@@ -513,7 +716,7 @@ export default function App() {
         setBusy(false);
       }
     },
-    [showToast]
+    [showToast, syncCoopProfile]
   );
 
   const handleReviveWithCredits = useCallback(async () => {
@@ -534,9 +737,15 @@ export default function App() {
   }, [showToast]);
 
   const handleReturnToTitle = useCallback(() => {
+    if (engineRef.current?.isCoopActive() || coopMatchSummary) {
+      mpClientRef.current?.leaveRoom();
+      coopRoomRef.current = null;
+      setCoopRoom(null);
+      setCoopMatchSummary(null);
+    }
     setActiveTab('none');
     engineRef.current?.returnToTitle();
-  }, []);
+  }, [coopMatchSummary]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -690,6 +899,23 @@ export default function App() {
         onReturnToTitle={handleReturnToTitle}
         onOpenTutorials={handleOpenTutorials}
         suppressPauseModal={tutorialMode !== 'inactive'}
+        wsStatus={wsStatus}
+        coopRoom={coopRoom}
+        coopPlayerId={coopPlayerId}
+        openRooms={openRooms}
+        coopError={coopError}
+        coopJoinCodeDraft={coopJoinCodeDraft}
+        setCoopJoinCodeDraft={setCoopJoinCodeDraft}
+        coopMatchSummary={coopMatchSummary}
+        onOpenCoop={handleOpenCoop}
+        onCreateCoopRoom={handleCreateCoopRoom}
+        onJoinCoopRoom={handleJoinCoopRoom}
+        onLeaveCoopRoom={handleLeaveCoopRoom}
+        onToggleCoopReady={handleToggleCoopReady}
+        onSetCoopLevel={handleSetCoopLevel}
+        onStartCoopMatch={handleStartCoopMatch}
+        onRefreshCoopRooms={handleRefreshCoopRooms}
+        onReturnToCoopLobby={handleReturnToCoopLobby}
       />
 
       {tutorialMode !== 'inactive' && (

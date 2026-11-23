@@ -8,6 +8,7 @@ import { CyberTrenchEnvironment } from './environment';
 import {
   createAreaHazardVisuals,
   createBombMesh,
+  createCallsignSprite,
   createEnemyModel,
   createFragmentMesh,
   createPlayerShip,
@@ -39,6 +40,17 @@ import {
   type TrailColorId,
   type WeaponPattern,
 } from './types';
+import type {
+  CoopAreaHazardPayload,
+  CoopBoltVisual,
+  CoopClientToServerMessage,
+  CoopEnemyBoltPayload,
+  CoopMatchEndPayload,
+  CoopPlayerFlightState,
+  CoopServerToClientMessage,
+  CoopWorldSync,
+  RoomPlayerInfo,
+} from './multiplayerTypes';
 import type { TutorialStepId } from './tutorial';
 
 // Reusable scratch math objects (zero per-frame allocations)
@@ -77,6 +89,7 @@ interface PlayerBolt {
   targetEnemyId: number | null;
   trailAccum: number;
   colorHex: number;
+  visualOnly?: boolean;
 }
 
 interface EnemyBolt {
@@ -121,6 +134,9 @@ interface EnemyActor {
   targetZ: number;
   baseX: number;
   baseY: number;
+  syncTargetX?: number;
+  syncTargetY?: number;
+  syncTargetZ?: number;
   hp: number;
   maxHp: number;
   radius: number;
@@ -153,6 +169,7 @@ interface AreaHazard {
 }
 
 interface FragmentActor {
+  id: number;
   mesh: THREE.Group;
   kind: FragmentKind;
   x: number;
@@ -186,6 +203,8 @@ export interface EngineCallbacks {
     accuracy: number;
     victory: boolean;
   }) => void;
+  onCoopSend?: (msg: CoopClientToServerMessage) => void;
+  onCoopMatchEnd?: (summary: CoopMatchEndPayload) => void;
 }
 
 function detectSoftwareGl(): boolean {
@@ -266,6 +285,33 @@ export class SpaceShooterEngine {
   private fragmentDropTimer = 7.5;
   private fragmentAmbientCount = 0;
   private nextEnemyId = 1;
+  private nextFragmentId = 1;
+
+  // 2-Player Online Co-Op Arena State
+  private coopActive = false;
+  private coopIsHost = false;
+  private coopRoomCode = '';
+  private coopLocalSlot: 1 | 2 = 1;
+  private coopLocalName = 'VANGUARD-01';
+  private coopPartnerInfo: RoomPlayerInfo | null = null;
+  private coopPartnerRig: PlayerShipRig | null = null;
+  private coopPartnerLabel: THREE.Sprite | null = null;
+  private coopPartnerState: CoopPlayerFlightState | null = null;
+  private coopPartnerRenderX = 3.8;
+  private coopPartnerRenderY = -1.2;
+  private coopPartnerRenderZ = 0;
+  private coopPartnerRenderRotZ = 0;
+  private coopPartnerRenderRotX = 0;
+  private coopPartnerTrailAccum = 0;
+  private coopPlayerSyncAccum = 0;
+  private coopWorldSyncAccum = 0;
+  private coopLocalDowned = false;
+  private coopLocalRespawnTimer = 0;
+  private coopMatchEnded = false;
+  private coopPendingShotBolts: CoopBoltVisual[] = [];
+  private coopPendingEnemyBolts: CoopEnemyBoltPayload[] = [];
+  private coopPendingAreaHazards: CoopAreaHazardPayload[] = [];
+  private coopProcessedKills = new Set<number>();
 
   // Player ship kinematics & combat stats
   private shipX = 0;
@@ -811,6 +857,7 @@ export class SpaceShooterEngine {
   }
 
   public startNewGame(profile?: PilotProfile, startLevel = 1): void {
+    this.clearCoopState();
     this.audio.unlock();
     this.clearEntities();
 
@@ -877,7 +924,339 @@ export class SpaceShooterEngine {
     this.emitHud();
   }
 
+  public startCoopGame(
+    profile: PilotProfile | undefined,
+    opts: {
+      roomCode: string;
+      localSlot: 1 | 2;
+      localName: string;
+      partner: RoomPlayerInfo;
+      startLevel: number;
+    }
+  ): void {
+    this.clearCoopState();
+    this.audio.unlock();
+    this.clearEntities();
+
+    if (profile) {
+      this.setLoadout(
+        profile.selected_jet || this.jetId || 'vanguard',
+        profile.selected_skin || this.skinId || 'factory',
+        profile.selected_trail || this.trailId || 'jet_default',
+        profile.equipped_mods || this.equippedMods
+      );
+    }
+
+    this.coopActive = true;
+    this.coopIsHost = opts.localSlot === 1;
+    this.coopRoomCode = opts.roomCode;
+    this.coopLocalSlot = opts.localSlot;
+    this.coopLocalName = opts.localName;
+    this.coopPartnerInfo = opts.partner;
+    this.coopLocalDowned = false;
+    this.coopLocalRespawnTimer = 0;
+    this.coopMatchEnded = false;
+    this.coopProcessedKills.clear();
+
+    const startX = opts.localSlot === 1 ? -3.8 : 3.8;
+    const partnerStartX = opts.localSlot === 1 ? 3.8 : -3.8;
+
+    const jet = JETS[this.jetId];
+    const hullTier = profile?.hull_upgrade ?? 0;
+    const shieldTier = profile?.shield_upgrade ?? 0;
+    const laserTier = profile?.laser_upgrade ?? 0;
+    const platingBonus = this.hasMod('reactive_plating') ? 25 : 0;
+    const platingDmgMult = this.hasMod('reactive_plating') ? 1.15 : 1.0;
+
+    this.maxHealth = Math.max(60, 100 + hullTier * 25 + jet.hullBonus + platingBonus);
+    this.health = this.maxHealth;
+    this.maxShield = Math.max(60, 100 + shieldTier * 25 + jet.shieldBonus + platingBonus);
+    this.shield = this.maxShield;
+    this.baseDamageMult = (1 + laserTier * 0.22) * jet.damageMult * platingDmgMult;
+    this.laserLevel = laserTier >= 3 ? 2 : 1;
+    this.weaponPattern = 'twin';
+
+    this.score = 0;
+    this.multiplier = 1;
+    this.maxMultiplier = 1;
+    this.comboTimer = 0;
+    this.kills = 0;
+    this.shotsFired = 0;
+    this.shotsHit = 0;
+    this.shipX = startX;
+    this.shipY = -1.2;
+    this.shipZ = 0;
+    this.shipVx = 0;
+    this.shipVy = 0;
+    this.barrelRollTimer = 0;
+    this.barrelRollCooldown = 0;
+    this.specialCooldown = 0;
+    this.specialActiveTimer = 0;
+    this.afterburnerCooldown = 0;
+    this.afterburnerActiveTimer = 0;
+    this.missileCooldown = 0;
+    this.shieldPulseCooldown = 0;
+    this.shieldPulseActiveTimer = 0;
+    this.dataVirusTimer = 0;
+    this.shogunDroneTimer = 0;
+    this.kitsuneFoxfireTimer = 0;
+    this.podTimer = 0;
+    this.wingmanTimer = 0;
+    this.wingmanFireCooldown = 0;
+    this.wingmanLeftBlockCd = 0;
+    this.wingmanRightBlockCd = 0;
+    this.invulnTimer = 1.6;
+    this.fragmentDropTimer = 7.0;
+    this.fragmentAmbientCount = 0;
+    this.resetBossChaseState(true);
+
+    // Spawn Partner 3D Jet in the same arena
+    this.coopPartnerRenderX = partnerStartX;
+    this.coopPartnerRenderY = -1.2;
+    this.coopPartnerRenderZ = 0;
+    this.coopPartnerState = {
+      slot: opts.partner.slot,
+      x: partnerStartX,
+      y: -1.2,
+      z: 0,
+      rotZ: 0,
+      rotX: 0,
+      health: 100,
+      maxHealth: 100,
+      shield: 100,
+      maxShield: 100,
+      score: 0,
+      kills: 0,
+      afterburner: false,
+      specialActive: false,
+      shieldPulse: false,
+      wingmenActive: false,
+      downed: false,
+      respawnTimeLeft: 0,
+    };
+
+    const partnerRig = createPlayerShip(opts.partner.jetId, opts.partner.skinId, opts.partner.trailId);
+    partnerRig.group.position.set(partnerStartX, -1.2, 0);
+    const label = createCallsignSprite(`P${opts.partner.slot} · ${opts.partner.pilotName}`, JETS[opts.partner.jetId]?.primaryColor || '#38bdf8');
+    label.position.set(0, 1.85, 0);
+    partnerRig.group.add(label);
+    this.scene.add(partnerRig.group);
+    this.coopPartnerRig = partnerRig;
+    this.coopPartnerLabel = label;
+
+    this.phase = 'playing';
+    this.setupLevel(THREE.MathUtils.clamp(opts.startLevel, 1, 30));
+    this.showBanner(`2P CO-OP ARENA · WITH ${opts.partner.pilotName}`, 2.6);
+    this.emitHud();
+  }
+
+  public isCoopActive(): boolean {
+    return this.coopActive;
+  }
+
+  public handleCoopMessage(msg: CoopServerToClientMessage): void {
+    if (!this.coopActive) return;
+
+    if (msg.type === 'coop:player_state') {
+      if (msg.state.slot !== this.coopLocalSlot) {
+        this.coopPartnerState = msg.state;
+      }
+      return;
+    }
+
+    if (msg.type === 'coop:shoot') {
+      if (msg.slot === this.coopLocalSlot) return;
+      for (const b of msg.bolts) {
+        this.spawnPlayerBolt(
+          b.x,
+          b.y,
+          b.z,
+          b.vx,
+          b.vy,
+          b.vz,
+          0,
+          false,
+          false,
+          b.colorHex,
+          b.scale,
+          b.isMissile,
+          null,
+          true
+        );
+      }
+      return;
+    }
+
+    if (msg.type === 'coop:ability') {
+      if (msg.slot === this.coopLocalSlot) return;
+      if (msg.kind === 'afterburner') {
+        this.spawnExplosion(this.coopPartnerRenderX, this.coopPartnerRenderY, this.coopPartnerRenderZ + 1.2, 16, 0x38bdf8, 13);
+      } else if (msg.kind === 'special') {
+        this.spawnExplosion(this.coopPartnerRenderX, this.coopPartnerRenderY, this.coopPartnerRenderZ, 14, 0xe879f9, 12);
+      } else if (msg.kind === 'shield_pulse') {
+        this.spawnExplosion(this.coopPartnerRenderX, this.coopPartnerRenderY, this.coopPartnerRenderZ, 14, 0x2dd4bf, 12);
+      }
+      return;
+    }
+
+    if (msg.type === 'coop:revive_partner') {
+      if (msg.targetSlot === this.coopLocalSlot && this.coopLocalDowned) {
+        this.reviveLocalCoopPilot('PARTNER PULSE REBOOT!');
+      }
+      return;
+    }
+
+    if (msg.type === 'coop:partner_left') {
+      if (this.coopPartnerRig) {
+        this.scene.remove(this.coopPartnerRig.group);
+        disposeObjectTree(this.coopPartnerRig.group);
+        this.coopPartnerRig = null;
+        this.coopPartnerLabel = null;
+      }
+      this.coopPartnerState = null;
+      this.coopActive = false;
+      this.coopIsHost = false;
+      this.showBanner(`${msg.reason} · CONTINUING SOLO`, 3.0);
+      this.emitHud();
+      return;
+    }
+
+    if (msg.type === 'coop:match_end') {
+      this.coopMatchEnded = true;
+      this.phase = msg.summary.victory ? 'victory' : 'gameover';
+      this.emitHud();
+      this.callbacks.onCoopMatchEnd?.(msg.summary);
+      return;
+    }
+
+    // Host receives damage & fragment claim events from Guest
+    if (this.coopIsHost) {
+      if (msg.type === 'coop:damage_enemy') {
+        const idx = this.enemies.findIndex((e) => e.id === msg.enemyId);
+        if (idx >= 0) {
+          this.damageEnemy(idx, msg.damage, msg.hitX, msg.hitY, msg.hitZ, msg.shooterSlot);
+        }
+      } else if (msg.type === 'coop:claim_fragment') {
+        const fIdx = this.fragments.findIndex((f) => f.id === msg.fragmentId);
+        if (fIdx >= 0) {
+          const frag = this.fragments[fIdx];
+          this.scene.remove(frag.mesh);
+          disposeObjectTree(frag.mesh);
+          this.fragments.splice(fIdx, 1);
+        }
+      }
+      return;
+    }
+
+    // Guest receives world state & enemy fire from Host
+    if (msg.type === 'coop:world_sync') {
+      this.applyCoopWorldSync(msg.world);
+    } else if (msg.type === 'coop:enemy_hit_confirm') {
+      if (msg.killed && !this.coopProcessedKills.has(msg.enemyId)) {
+        this.coopProcessedKills.add(msg.enemyId);
+        const isBoss = msg.kind === 'dreadnought';
+        const isHeavy = msg.kind === 'gunship' || msg.kind === 'bomber';
+        this.spawnExplosion(msg.x, msg.y, msg.z, isBoss ? 52 : isHeavy ? 24 : 15, 0xff7b1c, isBoss ? 24 : 13);
+        this.spawnExplosion(msg.x, msg.y, msg.z, isBoss ? 26 : 8, 0xfef08a, 10);
+        this.audio.playExplosion(isBoss ? 'boss' : isHeavy ? 'medium' : 'small');
+        const idx = this.enemies.findIndex((e) => e.id === msg.enemyId);
+        if (idx >= 0) {
+          const e = this.enemies[idx];
+          this.scene.remove(e.rig.group);
+          disposeObjectTree(e.rig.group);
+          this.enemies.splice(idx, 1);
+        }
+        if (msg.killerSlot === this.coopLocalSlot) {
+          this.kills++;
+          this.comboTimer = 4.2;
+          this.multiplier = Math.min(5, this.multiplier + 1);
+          this.maxMultiplier = Math.max(this.maxMultiplier, this.multiplier);
+          const bonus = this.hasMod('fragment_magnet') ? 1.25 : 1.0;
+          this.score += Math.round(msg.scoreAward * bonus);
+          if (this.score > this.highScore) this.highScore = this.score;
+          if (this.hasMod('shield_siphon')) {
+            this.shield = Math.min(this.maxShield, this.shield + (isBoss ? 12 : 3));
+          }
+        }
+      }
+    } else if (msg.type === 'coop:enemy_fire') {
+      for (const eb of msg.bolts) {
+        this.spawnEnemyBolt(eb.x, eb.y, eb.z, eb.vx, eb.vy, eb.vz, eb.damage, eb.pattern, eb.scale, eb.isHeavy, true);
+      }
+    } else if (msg.type === 'coop:bomb_spawn') {
+      const b = msg.bomb;
+      const mesh = createBombMesh(b.kind);
+      mesh.position.set(b.x, b.y, b.z);
+      this.scene.add(mesh);
+      this.enemyBombs.push({
+        kind: b.kind,
+        mesh,
+        x: b.x,
+        y: b.y,
+        z: b.z,
+        vx: b.vx,
+        vy: b.vy,
+        vz: b.vz,
+        hp: b.hp,
+        age: 0,
+        fuseTimer: b.fuseTimer,
+      });
+    } else if (msg.type === 'coop:area_hazard') {
+      for (const ah of msg.hazards) {
+        const visuals = createAreaHazardVisuals(ah.radius);
+        visuals.group.position.set(ah.x, ah.y, 0);
+        this.scene.add(visuals.group);
+        this.areaHazards.push({
+          visuals,
+          x: ah.x,
+          y: ah.y,
+          radius: ah.radius,
+          warningTimer: ah.warningDuration,
+          warningDuration: ah.warningDuration,
+          strikeTimer: 0.42,
+          hasStruck: false,
+          damage: ah.damage,
+        });
+      }
+      this.audio.playEnemyWarning();
+    }
+  }
+
+  private clearCoopState(): void {
+    this.coopActive = false;
+    this.coopIsHost = false;
+    this.coopRoomCode = '';
+    this.coopPartnerInfo = null;
+    this.coopPartnerState = null;
+    this.coopLocalDowned = false;
+    this.coopLocalRespawnTimer = 0;
+    this.coopMatchEnded = false;
+    this.coopPendingShotBolts = [];
+    this.coopPendingEnemyBolts = [];
+    this.coopPendingAreaHazards = [];
+    this.coopProcessedKills.clear();
+    if (this.coopPartnerRig) {
+      this.scene.remove(this.coopPartnerRig.group);
+      disposeObjectTree(this.coopPartnerRig.group);
+      this.coopPartnerRig = null;
+      this.coopPartnerLabel = null;
+    }
+    this.playerRig.group.visible = true;
+  }
+
+  private reviveLocalCoopPilot(banner = 'SYSTEMS REBOOTED · BACK IN FORMATION'): void {
+    this.coopLocalDowned = false;
+    this.coopLocalRespawnTimer = 0;
+    this.health = Math.max(25, Math.round(this.maxHealth * 0.65));
+    this.shield = this.maxShield;
+    this.invulnTimer = 2.6;
+    this.playerRig.group.visible = true;
+    this.showBanner(banner, 2.0);
+    this.spawnExplosion(this.shipX, this.shipY, this.shipZ, 18, 0x38bdf8, 12);
+  }
+
   public restoreCheckpoint(checkpoint: GameCheckpointPayload, profile?: PilotProfile): void {
+    this.clearCoopState();
     this.audio.unlock();
     this.clearEntities();
 
@@ -1000,6 +1379,7 @@ export class SpaceShooterEngine {
   }
 
   public returnToTitle(): void {
+    this.clearCoopState();
     this.clearEntities();
     this.resetBossChaseState(true);
     this.phase = 'title';
@@ -1180,14 +1560,16 @@ export class SpaceShooterEngine {
         ? THREE.MathUtils.randFloat(-40, -28)
         : THREE.MathUtils.randFloat(-34, -20);
 
-    const hp =
-      kind === 'dreadnought'
+    const coopHpMult = this.coopActive ? (kind === 'dreadnought' ? 1.55 : 1.35) : 1.0;
+    const hp = Math.round(
+      (kind === 'dreadnought'
         ? cfg.bossHp
         : kind === 'bomber'
         ? Math.round(12 * waveScale)
         : kind === 'gunship'
         ? Math.round(8 * waveScale)
-        : Math.round(3 * waveScale);
+        : Math.round(3 * waveScale)) * coopHpMult
+    );
 
     const radius =
       kind === 'dreadnought'
@@ -1292,7 +1674,7 @@ export class SpaceShooterEngine {
 
     if (this.phase === 'title') {
       this.updateTitleScene(dt, now * 0.001);
-    } else if (this.phase === 'playing') {
+    } else if (this.phase === 'playing' || (this.phase === 'paused' && this.coopActive)) {
       if (this.hitstopTimer > 0) {
         this.hitstopTimer -= dt;
       } else {
@@ -1518,20 +1900,35 @@ export class SpaceShooterEngine {
       (this.shieldPulseRingMesh.material as THREE.MeshBasicMaterial).opacity = (1 - progress) * 0.78;
     }
 
+    // Handle Co-Op Downed / Reboot countdown
+    if (this.coopActive && this.coopLocalDowned) {
+      this.coopLocalRespawnTimer -= dt;
+      this.playerRig.group.visible = Math.floor(performance.now() * 0.012) % 2 === 0;
+      if (this.coopLocalRespawnTimer <= 0) {
+        this.reviveLocalCoopPilot();
+      }
+    } else {
+      this.playerRig.group.visible = true;
+    }
+
+    const controlsLocked = this.coopActive && (this.phase === 'paused' || this.coopLocalDowned);
+
     // 1. Player Movement (Keyboard + Touch Joystick + Optional Pointer Drag)
     // Invert horizontal steer when front-facing camera is active so Left/Right stay screen-consistent.
     const steerXSign = this.bossChaseBlend > 0.5 ? -1 : 1;
-    let moveX = this.touchSteerX * steerXSign;
-    let moveY = this.touchSteerY;
-    if (this.heldKeys.has('KeyA') || this.heldKeys.has('ArrowLeft')) moveX -= steerXSign;
-    if (this.heldKeys.has('KeyD') || this.heldKeys.has('ArrowRight')) moveX += steerXSign;
-    if (this.heldKeys.has('KeyW') || this.heldKeys.has('ArrowUp')) moveY += 1;
-    if (this.heldKeys.has('KeyS') || this.heldKeys.has('ArrowDown')) moveY -= 1;
+    let moveX = controlsLocked ? 0 : this.touchSteerX * steerXSign;
+    let moveY = controlsLocked ? 0 : this.touchSteerY;
+    if (!controlsLocked) {
+      if (this.heldKeys.has('KeyA') || this.heldKeys.has('ArrowLeft')) moveX -= steerXSign;
+      if (this.heldKeys.has('KeyD') || this.heldKeys.has('ArrowRight')) moveX += steerXSign;
+      if (this.heldKeys.has('KeyW') || this.heldKeys.has('ArrowUp')) moveY += 1;
+      if (this.heldKeys.has('KeyS') || this.heldKeys.has('ArrowDown')) moveY -= 1;
+    }
 
     moveX = THREE.MathUtils.clamp(moveX, -1, 1);
     moveY = THREE.MathUtils.clamp(moveY, -1, 1);
 
-    if (this.pointerTarget && Math.abs(moveX) < 0.05 && Math.abs(moveY) < 0.05) {
+    if (!controlsLocked && this.pointerTarget && Math.abs(moveX) < 0.05 && Math.abs(moveY) < 0.05) {
       const dx = this.pointerTarget.x - this.shipX;
       const dy = this.pointerTarget.y - this.shipY;
       moveX = THREE.MathUtils.clamp(dx * 0.38, -1, 1);
@@ -1539,32 +1936,44 @@ export class SpaceShooterEngine {
     }
 
     // Trigger Abilities (Q Special, Space/F Afterburner, R Missiles, C Shield Pulse, Shift/E Roll)
-    if (this.specialBufferTimer > 0 && this.specialCooldown <= 0) {
-      this.specialBufferTimer = 0;
-      this.activateSpecialAbility();
-    }
-    if (this.afterburnerBufferTimer > 0 && this.afterburnerCooldown <= 0 && this.afterburnerActiveTimer <= 0) {
-      this.afterburnerBufferTimer = 0;
-      this.activateAfterburner();
-    }
-    if (this.missileBufferTimer > 0 && this.missileCooldown <= 0) {
-      this.missileBufferTimer = 0;
-      this.activateMissileBarrage();
-    }
-    if (this.shieldPulseBufferTimer > 0 && this.shieldPulseCooldown <= 0) {
-      this.shieldPulseBufferTimer = 0;
-      this.activateShieldPulse();
-    }
+    if (!controlsLocked) {
+      if (this.specialBufferTimer > 0 && this.specialCooldown <= 0) {
+        this.specialBufferTimer = 0;
+        this.activateSpecialAbility();
+        if (this.coopActive) this.callbacks.onCoopSend?.({ type: 'coop:ability', kind: 'special' });
+      }
+      if (this.afterburnerBufferTimer > 0 && this.afterburnerCooldown <= 0 && this.afterburnerActiveTimer <= 0) {
+        this.afterburnerBufferTimer = 0;
+        this.activateAfterburner();
+        if (this.coopActive) this.callbacks.onCoopSend?.({ type: 'coop:ability', kind: 'afterburner' });
+      }
+      if (this.missileBufferTimer > 0 && this.missileCooldown <= 0) {
+        this.missileBufferTimer = 0;
+        this.activateMissileBarrage();
+        if (this.coopActive) this.callbacks.onCoopSend?.({ type: 'coop:ability', kind: 'missile' });
+      }
+      if (this.shieldPulseBufferTimer > 0 && this.shieldPulseCooldown <= 0) {
+        this.shieldPulseBufferTimer = 0;
+        this.activateShieldPulse();
+        if (this.coopActive) {
+          this.callbacks.onCoopSend?.({ type: 'coop:ability', kind: 'shield_pulse' });
+          if (this.coopPartnerState?.downed && Math.hypot(this.coopPartnerState.x - this.shipX, this.coopPartnerState.y - this.shipY) <= 10) {
+            this.callbacks.onCoopSend?.({ type: 'coop:revive_partner', targetSlot: this.coopPartnerState.slot });
+          }
+        }
+      }
 
-    // Trigger Buffered Barrel Roll Dodge
-    if (this.rollBufferTimer > 0 && this.barrelRollCooldown <= 0 && this.barrelRollTimer <= 0) {
-      this.rollBufferTimer = 0;
-      this.barrelRollTimer = 0.42;
-      this.barrelRollCooldown = 1.15;
-      this.invulnTimer = Math.max(this.invulnTimer, 0.46);
-      this.barrelRollDir = moveX < -0.1 ? 1 : moveX > 0.1 ? -1 : this.shipX > 0 ? 1 : -1;
-      this.shipVx += -this.barrelRollDir * 16;
-      this.audio.playBarrelRoll();
+      // Trigger Buffered Barrel Roll Dodge
+      if (this.rollBufferTimer > 0 && this.barrelRollCooldown <= 0 && this.barrelRollTimer <= 0) {
+        this.rollBufferTimer = 0;
+        this.barrelRollTimer = 0.42;
+        this.barrelRollCooldown = 1.15;
+        this.invulnTimer = Math.max(this.invulnTimer, 0.46);
+        this.barrelRollDir = moveX < -0.1 ? 1 : moveX > 0.1 ? -1 : this.shipX > 0 ? 1 : -1;
+        this.shipVx += -this.barrelRollDir * 16;
+        this.audio.playBarrelRoll();
+        if (this.coopActive) this.callbacks.onCoopSend?.({ type: 'coop:ability', kind: 'roll' });
+      }
     }
 
     const specialSpeedMult =
@@ -1776,9 +2185,9 @@ export class SpaceShooterEngine {
       if (this.wingmanRightMesh) this.wingmanRightMesh.visible = false;
     }
 
-    // 2. ALWAYS AUTO-SHOOT Weapons (disabled during cinematic boss chase phase)
+    // 2. ALWAYS AUTO-SHOOT Weapons (disabled during cinematic boss chase phase or when downed)
     this.fireCooldown = Math.max(0, this.fireCooldown - dt);
-    if (!chaseActive && this.fireCooldown <= 0) {
+    if (!chaseActive && !this.coopLocalDowned && this.fireCooldown <= 0) {
       this.firePlayerWeapons();
     }
 
@@ -1791,73 +2200,103 @@ export class SpaceShooterEngine {
     lMuzzle.opacity = THREE.MathUtils.damp(lMuzzle.opacity, 0, 24, dt);
     rMuzzle.opacity = THREE.MathUtils.damp(rMuzzle.opacity, 0, 24, dt);
 
-    // 3. Level Wave Spawning + End-of-Level Boss Fight
-    if (this.waveSpawnQueue.length > 0) {
-      this.spawnCooldown -= enemyDt;
-      const maxConcurrent = this.wave >= 6 ? 7 : 5;
-      if (this.spawnCooldown <= 0 && this.enemies.length < maxConcurrent) {
-        const nextKind = this.waveSpawnQueue.shift()!;
-        this.spawnEnemy(nextKind);
-        this.spawnCooldown = Math.max(0.5, 1.25 - this.wave * 0.035);
-      }
-    } else if (this.bossPending && !this.bossSpawned && this.enemies.length === 0) {
-      // Spawn the End-of-Level Boss!
-      this.bossPending = false;
-      this.bossSpawned = true;
-      this.spawnEnemy('dreadnought');
-      this.showBanner(`BOSS ALERT · ${levelCfg.bossTitle}`, 3.0);
-    } else if (this.bossSpawned && this.enemies.length === 0) {
-      // Level Cleared!
-      this.audio.playWaveClear();
-      this.shield = Math.min(this.maxShield, this.shield + 35);
+    // 3. Level Wave Spawning + End-of-Level Boss Fight (Authoritative on Solo or Co-Op Host)
+    const isAuthoritative = !this.coopActive || this.coopIsHost;
+    if (isAuthoritative) {
+      if (this.waveSpawnQueue.length > 0) {
+        this.spawnCooldown -= enemyDt;
+        const maxConcurrent = this.wave >= 6 ? 7 : 5;
+        if (this.spawnCooldown <= 0 && this.enemies.length < maxConcurrent) {
+          const nextKind = this.waveSpawnQueue.shift()!;
+          this.spawnEnemy(nextKind);
+          this.spawnCooldown = Math.max(0.5, 1.25 - this.wave * 0.035);
+        }
+      } else if (this.bossPending && !this.bossSpawned && this.enemies.length === 0) {
+        // Spawn the End-of-Level Boss!
+        this.bossPending = false;
+        this.bossSpawned = true;
+        this.spawnEnemy('dreadnought');
+        this.showBanner(`BOSS ALERT · ${levelCfg.bossTitle}`, 3.0);
+      } else if (this.bossSpawned && this.enemies.length === 0) {
+        // Level Cleared!
+        this.audio.playWaveClear();
+        this.shield = Math.min(this.maxShield, this.shield + 35);
+        if (this.coopActive && this.coopLocalDowned) {
+          this.reviveLocalCoopPilot('LEVEL CLEARED · SYSTEMS REBOOTED!');
+        }
+        if (this.coopActive && this.coopPartnerState?.downed) {
+          this.callbacks.onCoopSend?.({ type: 'coop:revive_partner', targetSlot: this.coopPartnerState.slot });
+        }
 
-      if (this.wave >= 30) {
-        // Completed all 30 levels!
-        this.phase = 'victory';
-        const accuracy = this.shotsFired > 0 ? Math.round((this.shotsHit / this.shotsFired) * 100) : 0;
-        this.emitHud();
-        this.callbacks.onGameOver({
-          score: this.score,
-          wave: 30,
-          kills: this.kills,
-          maxMultiplier: this.maxMultiplier,
-          accuracy,
-          victory: true,
-        });
+        if (this.wave >= 30) {
+          // Completed all 30 levels!
+          this.phase = 'victory';
+          const accuracy = this.shotsFired > 0 ? Math.round((this.shotsHit / this.shotsFired) * 100) : 0;
+          if (this.coopActive) {
+            this.finishCoopMatch(true);
+          } else {
+            this.emitHud();
+            this.callbacks.onGameOver({
+              score: this.score,
+              wave: 30,
+              kills: this.kills,
+              maxMultiplier: this.maxMultiplier,
+              accuracy,
+              victory: true,
+            });
+          }
+          return;
+        }
+
+        const nextLevel = this.wave + 1;
+        this.setupLevel(nextLevel);
+        if (!this.coopActive) {
+          this.callbacks.onWaveCleared(this.exportCheckpoint());
+        }
+      }
+
+      // Periodic ambient Weapon / Wingman Fragment spawn
+      this.fragmentDropTimer -= dt;
+      if (this.fragmentDropTimer <= 0) {
+        this.fragmentDropTimer = 8.5;
+        this.fragmentAmbientCount++;
+        const weaponKinds: FragmentKind[] = ['spread', 'stream', 'plasma', 'seeker'];
+        const picked: FragmentKind =
+          this.fragmentAmbientCount % 3 === 0 || Math.random() < 0.14
+            ? 'wingman'
+            : weaponKinds[Math.floor(Math.random() * weaponKinds.length)];
+        this.spawnFragment(
+          THREE.MathUtils.randFloat(-this.boundsX * 0.75, this.boundsX * 0.75),
+          THREE.MathUtils.randFloat(-2.5, 3.2),
+          -75,
+          picked
+        );
+      }
+
+      // Check simultaneous Co-Op wipe
+      if (this.coopActive && !this.coopMatchEnded && this.coopLocalDowned && this.coopPartnerState?.downed) {
+        this.finishCoopMatch(false);
         return;
       }
-
-      const nextLevel = this.wave + 1;
-      this.setupLevel(nextLevel);
-      this.callbacks.onWaveCleared(this.exportCheckpoint());
-    }
-
-    // Periodic ambient Weapon / Wingman Fragment spawn
-    this.fragmentDropTimer -= dt;
-    if (this.fragmentDropTimer <= 0) {
-      this.fragmentDropTimer = 8.5;
-      this.fragmentAmbientCount++;
-      const weaponKinds: FragmentKind[] = ['spread', 'stream', 'plasma', 'seeker'];
-      const picked: FragmentKind =
-        this.fragmentAmbientCount % 3 === 0 || Math.random() < 0.14
-          ? 'wingman'
-          : weaponKinds[Math.floor(Math.random() * weaponKinds.length)];
-      this.spawnFragment(
-        THREE.MathUtils.randFloat(-this.boundsX * 0.75, this.boundsX * 0.75),
-        THREE.MathUtils.randFloat(-2.5, 3.2),
-        -75,
-        picked
-      );
     }
 
     // 4. Advance Boss Chase Phase & Update Enemies, Bombs, Projectiles, Area Hazards & Fragments
-    this.updateBossChasePhase(dt);
-    this.updateEnemies(enemyDt, dt);
+    if (isAuthoritative) {
+      this.updateBossChasePhase(dt);
+      this.updateEnemies(enemyDt, dt);
+    } else {
+      this.updateCoopGuestVisuals(dt);
+    }
     this.updateEnemyBombs(enemyDt);
     this.updateAreaHazards(enemyDt);
     this.updatePlayerBolts(dt);
     this.updateEnemyBolts(enemyDt);
     this.updateFragments(dt);
+
+    if (this.coopActive) {
+      this.updateRemotePartner(dt);
+      this.flushCoopSync(dt, levelCfg.bossTitle, bossActive);
+    }
 
     // 5. Smooth Chase / Boss Encounter / Orbital Front-Facing Camera
     this.cameraShake = THREE.MathUtils.damp(this.cameraShake, 0, 10, dt);
@@ -2137,7 +2576,8 @@ export class SpaceShooterEngine {
     colorHex: number,
     scaleMult = 1,
     isMissile = false,
-    targetEnemyId: number | null = null
+    targetEnemyId: number | null = null,
+    visualOnly = false
   ): void {
     const bolt = this.playerBolts.find((b) => !b.active);
     if (!bolt) return;
@@ -2155,11 +2595,27 @@ export class SpaceShooterEngine {
     bolt.targetEnemyId = targetEnemyId;
     bolt.trailAccum = 0;
     bolt.colorHex = colorHex;
+    bolt.visualOnly = visualOnly;
     bolt.mesh.position.set(x, y, z);
     bolt.mesh.scale.set(scaleMult, scaleMult, scaleMult);
     (bolt.mesh.material as THREE.MeshBasicMaterial).color.setHex(colorHex);
     bolt.mesh.visible = true;
-    this.shotsFired++;
+    if (!visualOnly) {
+      this.shotsFired++;
+      if (this.coopActive) {
+        this.coopPendingShotBolts.push({
+          x,
+          y,
+          z,
+          vx,
+          vy,
+          vz,
+          colorHex,
+          scale: scaleMult,
+          isMissile,
+        });
+      }
+    }
   }
 
   private firePlayerWeapons(): void {
@@ -2848,7 +3304,8 @@ export class SpaceShooterEngine {
     damage: number,
     pattern: EnemyBoltPattern,
     scale: number,
-    isHeavy = false
+    isHeavy = false,
+    fromNetwork = false
   ): void {
     const bolt = this.enemyBolts.find((b) => !b.active);
     if (!bolt) return;
@@ -2878,6 +3335,33 @@ export class SpaceShooterEngine {
     }
     bolt.mesh.position.set(sx, sy, sz);
     bolt.mesh.visible = true;
+
+    if (this.coopActive && this.coopIsHost && !fromNetwork) {
+      this.coopPendingEnemyBolts.push({
+        x: sx,
+        y: sy,
+        z: sz,
+        vx,
+        vy,
+        vz,
+        damage,
+        pattern,
+        scale,
+        isHeavy,
+      });
+    }
+  }
+
+  private getCoopTargetPos(): { x: number; y: number; z: number } {
+    if (!this.coopActive || !this.coopPartnerState || this.coopPartnerState.downed) {
+      return { x: this.shipX, y: this.shipY, z: this.shipZ };
+    }
+    if (this.coopLocalDowned) {
+      return { x: this.coopPartnerState.x, y: this.coopPartnerState.y, z: this.coopPartnerState.z };
+    }
+    return Math.random() < 0.5
+      ? { x: this.shipX, y: this.shipY, z: this.shipZ }
+      : { x: this.coopPartnerState.x, y: this.coopPartnerState.y, z: this.coopPartnerState.z };
   }
 
   private fireAimedShot(e: EnemyActor): void {
@@ -2886,12 +3370,13 @@ export class SpaceShooterEngine {
     const isBoss = e.kind === 'dreadnought';
     const isGunship = e.kind === 'gunship';
     const damage = (isBoss ? 28 : isGunship ? 22 : 17) + waveDmg;
+    const target = this.getCoopTargetPos();
 
     const shootFrom = (ox: number, oy: number, offsetTargetX = 0) => {
       const sx = e.x + ox;
       const sy = e.y + oy;
       const sz = e.z + 1.6;
-      _v1.set(this.shipX + offsetTargetX - sx, this.shipY - sy, this.shipZ - sz).normalize();
+      _v1.set(target.x + offsetTargetX - sx, target.y - sy, target.z - sz).normalize();
       this.spawnEnemyBolt(
         sx,
         sy,
@@ -2981,15 +3466,17 @@ export class SpaceShooterEngine {
     const hpRatio = e.hp / Math.max(1, e.maxHp);
     const laneCount = isBoss && hpRatio <= 0.3 ? 2 : 1;
     const radius = isBoss ? 3.25 : 2.65;
+    const target = this.getCoopTargetPos();
 
     for (let i = 0; i < laneCount; i++) {
       const offsetX = laneCount === 2 ? (i === 0 ? -3.2 : 3.2) : 0;
-      const targetX = THREE.MathUtils.clamp(this.shipX + offsetX, -this.boundsX + 1.5, this.boundsX - 1.5);
-      const targetY = THREE.MathUtils.clamp(this.shipY, this.minY + 1.0, this.maxY - 1.0);
+      const targetX = THREE.MathUtils.clamp(target.x + offsetX, -this.boundsX + 1.5, this.boundsX - 1.5);
+      const targetY = THREE.MathUtils.clamp(target.y, this.minY + 1.0, this.maxY - 1.0);
       const visuals = createAreaHazardVisuals(radius);
       visuals.group.position.set(targetX, targetY, 0);
       this.scene.add(visuals.group);
 
+      const dmg = (isBoss ? 48 : 36) + waveDmg;
       this.areaHazards.push({
         visuals,
         x: targetX,
@@ -2999,8 +3486,18 @@ export class SpaceShooterEngine {
         warningDuration: 1.25,
         strikeTimer: 0.42,
         hasStruck: false,
-        damage: (isBoss ? 48 : 36) + waveDmg,
+        damage: dmg,
       });
+
+      if (this.coopActive && this.coopIsHost) {
+        this.coopPendingAreaHazards.push({
+          x: targetX,
+          y: targetY,
+          radius,
+          warningDuration: 1.25,
+          damage: dmg,
+        });
+      }
     }
     this.audio.playEnemyWarning();
   }
@@ -3078,8 +3575,14 @@ export class SpaceShooterEngine {
     mesh.position.set(sx, sy, sz);
     this.scene.add(mesh);
 
-    _v1.set(this.shipX - sx, this.shipY - sy, this.shipZ - sz).normalize();
+    const target = this.getCoopTargetPos();
+    _v1.set(target.x - sx, target.y - sy, target.z - sz).normalize();
     const speed = kind === 'torpedo' ? 26 : kind === 'cluster' ? 20 : 14.5;
+    const vx = _v1.x * speed;
+    const vy = _v1.y * speed;
+    const vz = _v1.z * speed;
+    const hp = kind === 'torpedo' ? 2 : 3;
+    const fuseTimer = kind === 'cluster' ? 1.45 : kind === 'mine' ? 4.5 : 8.0;
 
     this.enemyBombs.push({
       kind,
@@ -3087,13 +3590,20 @@ export class SpaceShooterEngine {
       x: sx,
       y: sy,
       z: sz,
-      vx: _v1.x * speed,
-      vy: _v1.y * speed,
-      vz: _v1.z * speed,
-      hp: kind === 'torpedo' ? 2 : 3,
+      vx,
+      vy,
+      vz,
+      hp,
       age: 0,
-      fuseTimer: kind === 'cluster' ? 1.45 : kind === 'mine' ? 4.5 : 8.0,
+      fuseTimer,
     });
+
+    if (this.coopActive && this.coopIsHost) {
+      this.callbacks.onCoopSend?.({
+        type: 'coop:bomb_spawn',
+        bomb: { kind, x: sx, y: sy, z: sz, vx, vy, vz, hp, fuseTimer },
+      });
+    }
   }
 
   private updateEnemyBombs(dt: number): void {
@@ -3326,18 +3836,43 @@ export class SpaceShooterEngine {
         if (dx * dx + dy * dy + dz * dz <= hitR * hitR) {
           b.active = false;
           b.mesh.visible = false;
+          if (b.visualOnly) {
+            this.spawnExplosion(b.x, b.y, b.z, 4, b.colorHex, 7);
+            break;
+          }
           this.shotsHit++;
           if (b.splash) {
             this.spawnExplosion(b.x, b.y, b.z, 10, b.colorHex, 11);
           }
-          this.damageEnemy(i, b.damage, b.x, b.y, b.z);
+          if (this.coopActive && !this.coopIsHost) {
+            e.hitFlashTimer = 0.075;
+            this.spawnExplosion(b.x, b.y, b.z, 4, 0x4ade80, 7);
+            this.audio.playHitConfirm();
+            this.callbacks.onCoopSend?.({
+              type: 'coop:damage_enemy',
+              enemyId: e.id,
+              damage: b.damage,
+              hitX: b.x,
+              hitY: b.y,
+              hitZ: b.z,
+            });
+          } else {
+            this.damageEnemy(i, b.damage, b.x, b.y, b.z, this.coopLocalSlot);
+          }
           break;
         }
       }
     }
   }
 
-  private damageEnemy(index: number, damage: number, hitX: number, hitY: number, hitZ: number): void {
+  private damageEnemy(
+    index: number,
+    damage: number,
+    hitX: number,
+    hitY: number,
+    hitZ: number,
+    attackerSlot: 1 | 2 = this.coopLocalSlot
+  ): void {
     const e = this.enemies[index];
     if (!e) return;
     if (this.bossChasePhase !== 'none' && e.kind === 'dreadnought') {
@@ -3361,22 +3896,25 @@ export class SpaceShooterEngine {
     disposeObjectTree(e.rig.group);
     this.enemies.splice(index, 1);
 
-    this.kills++;
     this.waveKills++;
-    this.comboTimer = 4.2;
-    this.multiplier = Math.min(5, this.multiplier + 1);
-    this.maxMultiplier = Math.max(this.maxMultiplier, this.multiplier);
+    const creditedToLocal = !this.coopActive || attackerSlot === this.coopLocalSlot;
+    if (creditedToLocal) {
+      this.kills++;
+      this.comboTimer = 4.2;
+      this.multiplier = Math.min(5, this.multiplier + 1);
+      this.maxMultiplier = Math.max(this.maxMultiplier, this.multiplier);
 
-    const scoreBonus = this.hasMod('fragment_magnet') ? 1.25 : 1.0;
-    const points = Math.round(e.scoreValue * this.multiplier * scoreBonus);
-    this.score += points;
-    if (this.score > this.highScore) this.highScore = this.score;
+      const scoreBonus = this.hasMod('fragment_magnet') ? 1.25 : 1.0;
+      const points = Math.round(e.scoreValue * this.multiplier * scoreBonus);
+      this.score += points;
+      if (this.score > this.highScore) this.highScore = this.score;
 
-    const isBoss = e.kind === 'dreadnought';
-    if (this.hasMod('shield_siphon')) {
-      this.shield = Math.min(this.maxShield, this.shield + (isBoss ? 12 : 3));
+      if (this.hasMod('shield_siphon')) {
+        this.shield = Math.min(this.maxShield, this.shield + (e.kind === 'dreadnought' ? 12 : 3));
+      }
     }
 
+    const isBoss = e.kind === 'dreadnought';
     const isHeavy = e.kind === 'gunship' || e.kind === 'bomber';
     this.spawnExplosion(e.x, e.y, e.z, isBoss ? 52 : isHeavy ? 24 : 15, 0xff7b1c, isBoss ? 24 : 13);
     this.spawnExplosion(e.x, e.y, e.z, isBoss ? 26 : 8, 0xfef08a, 10);
@@ -3385,6 +3923,20 @@ export class SpaceShooterEngine {
     this.cameraShake = Math.min(0.85, this.cameraShake + (isBoss ? 0.65 : isHeavy ? 0.28 : 0.14));
     if (isBoss || isHeavy) {
       this.hitstopTimer = isBoss ? 0.065 : 0.03;
+    }
+
+    if (this.coopActive && this.coopIsHost) {
+      this.callbacks.onCoopSend?.({
+        type: 'coop:enemy_hit_confirm',
+        enemyId: e.id,
+        killed: true,
+        killerSlot: attackerSlot,
+        scoreAward: e.scoreValue * 2,
+        x: e.x,
+        y: e.y,
+        z: e.z,
+        kind: e.kind,
+      });
     }
 
     // Drop Crystal Weapon / Support / Wingman Fragment
@@ -3398,11 +3950,12 @@ export class SpaceShooterEngine {
     }
   }
 
-  private spawnFragment(x: number, y: number, z: number, kind: FragmentKind): void {
+  private spawnFragment(x: number, y: number, z: number, kind: FragmentKind, forcedId?: number): void {
+    const id = forcedId ?? this.nextFragmentId++;
     const mesh = createFragmentMesh(kind);
     mesh.position.set(x, y, z);
     this.scene.add(mesh);
-    this.fragments.push({ mesh, kind, x, y, z, age: 0 });
+    this.fragments.push({ id, mesh, kind, x, y, z, age: 0 });
   }
 
   private updateEnemyBolts(dt: number): void {
@@ -3529,6 +4082,16 @@ export class SpaceShooterEngine {
 
     if (this.health <= 0) {
       this.health = 0;
+      if (this.coopActive) {
+        if (this.coopLocalDowned) return;
+        this.coopLocalDowned = true;
+        this.coopLocalRespawnTimer = 8.0;
+        this.audio.playExplosion('boss');
+        this.spawnExplosion(this.shipX, this.shipY, this.shipZ, 32, 0xd946ef, 16);
+        this.showBanner('HULL BREACHED · REBOOTING 8s (PARTNER IN ARENA)', 2.8);
+        return;
+      }
+
       this.phase = 'gameover';
       this.audio.playExplosion('boss');
       this.spawnExplosion(this.shipX, this.shipY, this.shipZ, 42, 0xd946ef, 18);
@@ -3560,7 +4123,7 @@ export class SpaceShooterEngine {
       const dx = this.shipX - f.x;
       const dy = this.shipY - f.y;
       const distSq = dx * dx + dy * dy;
-      if (distSq < magnetDistSq && f.z > this.shipZ - magnetZRange) {
+      if (!this.coopLocalDowned && distSq < magnetDistSq && f.z > this.shipZ - magnetZRange) {
         f.x += dx * dt * magnetPull;
         f.y += dy * dt * magnetPull;
       }
@@ -3576,10 +4139,13 @@ export class SpaceShooterEngine {
         continue;
       }
 
-      if (Math.abs(f.z - this.shipZ) < 2.4 && distSq <= 2.7 * 2.7) {
+      if (!this.coopLocalDowned && Math.abs(f.z - this.shipZ) < 2.4 && distSq <= 2.7 * 2.7) {
         this.scene.remove(f.mesh);
         disposeObjectTree(f.mesh);
         this.fragments.splice(i, 1);
+        if (this.coopActive && !this.coopIsHost) {
+          this.callbacks.onCoopSend?.({ type: 'coop:claim_fragment', fragmentId: f.id });
+        }
         this.applyFragment(f.kind);
       }
     }
@@ -3710,6 +4276,360 @@ export class SpaceShooterEngine {
     }
   }
 
+  private updateCoopGuestVisuals(dt: number): void {
+    let lockedEnemy: EnemyActor | null = null;
+    let bestLockDist = Infinity;
+
+    for (const e of this.enemies) {
+      e.age += dt;
+      if (e.syncTargetX !== undefined && e.syncTargetY !== undefined && e.syncTargetZ !== undefined) {
+        const prevX = e.x;
+        e.x = THREE.MathUtils.damp(e.x, e.syncTargetX, 12, dt);
+        e.y = THREE.MathUtils.damp(e.y, e.syncTargetY, 12, dt);
+        e.z = THREE.MathUtils.damp(e.z, e.syncTargetZ, 12, dt);
+        e.rig.group.position.set(e.x, e.y, e.z);
+        e.rig.group.rotation.z = THREE.MathUtils.clamp((prevX - e.x) * 0.45, -0.45, 0.45);
+      }
+      if (e.kind === 'dreadnought') {
+        const targetRotY = this.bossChasePhase === 'active' || this.bossChasePhase === 'entering' ? Math.PI : 0;
+        e.rig.group.rotation.y = THREE.MathUtils.damp(e.rig.group.rotation.y, targetRotY, 8, dt);
+      }
+
+      if (e.hitFlashTimer > 0) {
+        e.hitFlashTimer -= dt;
+        const flashOn = e.hitFlashTimer > 0;
+        e.rig.hitMeshes.forEach((m, idx) => {
+          const mat = m.material as THREE.MeshStandardMaterial;
+          if (flashOn) {
+            mat.emissive.setHex(0xffffff);
+            mat.emissiveIntensity = 1.8;
+          } else {
+            mat.emissive.copy(e.rig.baseEmissives[idx]);
+            mat.emissiveIntensity = e.rig.baseEmissiveIntensities[idx];
+          }
+        });
+      }
+
+      const halo = e.rig.telegraphHalo;
+      if (e.pendingAttack !== 'none') {
+        const haloMat = halo.material as THREE.MeshBasicMaterial;
+        halo.visible = true;
+        haloMat.color.setHex(
+          e.pendingAttack === 'spread'
+            ? 0xff3355
+            : e.pendingAttack === 'tracking'
+            ? 0xd946ef
+            : e.pendingAttack === 'area'
+            ? 0xff3b30
+            : 0xffaa22
+        );
+        haloMat.opacity = 0.72;
+        halo.rotation.z += dt * 7;
+      } else {
+        halo.visible = false;
+      }
+
+      const dx = e.x - this.shipX;
+      const dy = e.y - this.shipY;
+      const aimDist = Math.hypot(dx, dy);
+      if (aimDist < bestLockDist && e.z < -8) {
+        bestLockDist = aimDist;
+        lockedEnemy = e;
+      }
+    }
+
+    if (lockedEnemy) {
+      this.reticleGroup.visible = true;
+      _v1.set(lockedEnemy.x, lockedEnemy.y, lockedEnemy.z + lockedEnemy.radius * 0.8);
+      this.reticleGroup.position.lerp(_v1, Math.min(1, dt * 16));
+      const s = lockedEnemy.kind === 'dreadnought' ? 3.0 : lockedEnemy.kind === 'gunship' ? 1.65 : 1.2;
+      this.reticleGroup.scale.setScalar(s);
+      this.reticleGroup.rotation.z += dt * 1.8;
+    } else {
+      this.reticleGroup.visible = false;
+    }
+
+    const targetBlend = this.bossChasePhase === 'entering' || this.bossChasePhase === 'active' ? 1 : 0;
+    this.bossChaseBlend = THREE.MathUtils.damp(this.bossChaseBlend, targetBlend, 4.4, dt);
+    if (this.bossChasePhase === 'none' && this.bossChaseBlend < 0.002) {
+      this.bossChaseBlend = 0;
+    }
+  }
+
+  private applyCoopWorldSync(world: CoopWorldSync): void {
+    if (world.wave !== this.wave) {
+      this.wave = THREE.MathUtils.clamp(world.wave, 1, 30);
+      this.sectorMode = world.sectorMode;
+      this.environment.setTheme(world.sectorMode);
+      const arenaName = ARENA_THEMES[world.sectorMode].name;
+      this.showBanner(`LEVEL ${this.wave}/30 · ${arenaName}`, 2.6);
+      this.audio.playWaveClear();
+      this.shield = Math.min(this.maxShield, this.shield + 35);
+      if (this.coopLocalDowned) {
+        this.reviveLocalCoopPilot('LEVEL CLEARED · SYSTEMS REBOOTED!');
+      }
+    }
+
+    this.waveKills = world.waveKills;
+    this.waveTotal = world.waveTotal;
+    this.bossChasePhase = world.bossChasePhase;
+    this.bossChaseTimer = world.bossChaseTimer;
+
+    const incomingIds = new Set(world.enemies.map((e) => e.id));
+    for (let i = this.enemies.length - 1; i >= 0; i--) {
+      if (!incomingIds.has(this.enemies[i].id)) {
+        const gone = this.enemies[i];
+        this.scene.remove(gone.rig.group);
+        disposeObjectTree(gone.rig.group);
+        this.enemies.splice(i, 1);
+      }
+    }
+
+    for (const se of world.enemies) {
+      const existing = this.enemies.find((e) => e.id === se.id);
+      if (existing) {
+        existing.syncTargetX = se.x;
+        existing.syncTargetY = se.y;
+        existing.syncTargetZ = se.z;
+        existing.hp = se.hp;
+        existing.maxHp = se.maxHp;
+        existing.pendingAttack = se.pendingAttack;
+        existing.telegraphTimer = se.telegraphTimer;
+      } else {
+        const rig = createEnemyModel(se.kind, world.wave);
+        rig.group.position.set(se.x, se.y, se.z);
+        this.scene.add(rig.group);
+        this.enemies.push({
+          id: se.id,
+          kind: se.kind,
+          rig,
+          x: se.x,
+          y: se.y,
+          z: se.z,
+          targetZ: se.z,
+          baseX: se.x,
+          baseY: se.y,
+          syncTargetX: se.x,
+          syncTargetY: se.y,
+          syncTargetZ: se.z,
+          hp: se.hp,
+          maxHp: se.maxHp,
+          radius: se.kind === 'dreadnought' ? 5.0 : se.kind === 'bomber' ? 2.65 : se.kind === 'gunship' ? 2.45 : 1.65,
+          age: 0,
+          phaseOffset: 0,
+          fireTimer: 99,
+          bombTimer: 99,
+          hitFlashTimer: 0,
+          ramCooldown: 0,
+          telegraphTimer: se.telegraphTimer,
+          telegraphDuration: 0.45,
+          pendingAttack: se.pendingAttack,
+          burstRemaining: 0,
+          burstIntervalTimer: 0,
+          attackCycleIndex: 0,
+          bossPhaseNotified: 1,
+          scoreValue: 130,
+        });
+      }
+    }
+
+    // Reconcile fragments
+    const fragIds = new Set(world.fragments.map((f) => f.id));
+    for (let i = this.fragments.length - 1; i >= 0; i--) {
+      if (!fragIds.has(this.fragments[i].id)) {
+        this.scene.remove(this.fragments[i].mesh);
+        disposeObjectTree(this.fragments[i].mesh);
+        this.fragments.splice(i, 1);
+      }
+    }
+    for (const sf of world.fragments) {
+      const existingFrag = this.fragments.find((f) => f.id === sf.id);
+      if (!existingFrag) {
+        this.spawnFragment(sf.x, sf.y, sf.z, sf.kind, sf.id);
+      }
+    }
+  }
+
+  private updateRemotePartner(dt: number): void {
+    if (!this.coopPartnerRig || !this.coopPartnerState || !this.coopPartnerInfo) return;
+    const ps = this.coopPartnerState;
+
+    this.coopPartnerRenderX = THREE.MathUtils.damp(this.coopPartnerRenderX, ps.x, 14, dt);
+    this.coopPartnerRenderY = THREE.MathUtils.damp(this.coopPartnerRenderY, ps.y, 14, dt);
+    this.coopPartnerRenderZ = THREE.MathUtils.damp(this.coopPartnerRenderZ, ps.z, 14, dt);
+    this.coopPartnerRenderRotZ = THREE.MathUtils.damp(this.coopPartnerRenderRotZ, ps.rotZ, 14, dt);
+    this.coopPartnerRenderRotX = THREE.MathUtils.damp(this.coopPartnerRenderRotX, ps.rotX, 14, dt);
+
+    const rig = this.coopPartnerRig;
+    rig.group.visible = ps.downed ? Math.floor(performance.now() * 0.012) % 2 === 0 : true;
+    rig.group.position.set(this.coopPartnerRenderX, this.coopPartnerRenderY, this.coopPartnerRenderZ);
+    rig.group.rotation.z = this.coopPartnerRenderRotZ;
+    rig.group.rotation.x = this.coopPartnerRenderRotX;
+
+    if (rig.accentRing) rig.accentRing.rotation.z += dt * (ps.afterburner ? 9.5 : 3.5);
+    if (rig.secondaryRing) rig.secondaryRing.rotation.z -= dt * (ps.afterburner ? 7.8 : 2.2);
+
+    const flamePulse = (ps.afterburner ? 2.2 : ps.specialActive ? 1.65 : 1.0) + Math.sin(performance.now() * 0.05) * 0.2;
+    rig.leftFlame.scale.set(ps.afterburner ? 1.3 : 1, ps.afterburner ? 1.3 : 1, flamePulse);
+    rig.rightFlame.scale.set(ps.afterburner ? 1.3 : 1, ps.afterburner ? 1.3 : 1, flamePulse);
+
+    rig.leftAfterburnerTrail.visible = ps.afterburner;
+    rig.rightAfterburnerTrail.visible = ps.afterburner;
+    rig.ramProw.visible = ps.afterburner;
+    if (ps.afterburner) {
+      (rig.leftAfterburnerTrail.material as THREE.MeshBasicMaterial).opacity = 0.72;
+      (rig.rightAfterburnerTrail.material as THREE.MeshBasicMaterial).opacity = 0.72;
+      (rig.ramProw.material as THREE.MeshBasicMaterial).opacity = 0.42;
+    }
+
+    const shieldMat = rig.shieldBubble.material as THREE.MeshBasicMaterial;
+    shieldMat.opacity = THREE.MathUtils.damp(shieldMat.opacity, ps.shieldPulse ? 0.55 : ps.specialActive ? 0.35 : 0, 12, dt);
+
+    if ((ps.afterburner || ps.specialActive) && !ps.downed) {
+      this.coopPartnerTrailAccum += dt;
+      if (this.coopPartnerTrailAccum >= 0.045) {
+        this.coopPartnerTrailAccum = 0;
+        const trailHex =
+          TRAIL_COLORS[this.coopPartnerInfo.trailId]?.hex ??
+          JETS[this.coopPartnerInfo.jetId]?.accentHex ??
+          0x38bdf8;
+        this.spawnTrailParticle(
+          this.coopPartnerRenderX - 0.45,
+          this.coopPartnerRenderY + 0.08,
+          this.coopPartnerRenderZ + 1.9,
+          0,
+          0,
+          22,
+          trailHex,
+          0.75
+        );
+        this.spawnTrailParticle(
+          this.coopPartnerRenderX + 0.45,
+          this.coopPartnerRenderY + 0.08,
+          this.coopPartnerRenderZ + 1.9,
+          0,
+          0,
+          22,
+          trailHex,
+          0.75
+        );
+      }
+    }
+  }
+
+  private flushCoopSync(dt: number, bossTitle: string, bossActive: boolean): void {
+    const send = this.callbacks.onCoopSend;
+    if (!send) return;
+
+    if (this.coopPendingShotBolts.length > 0) {
+      send({ type: 'coop:shoot', bolts: this.coopPendingShotBolts.splice(0, 16) });
+    }
+
+    if (this.coopIsHost && this.coopPendingEnemyBolts.length > 0) {
+      send({ type: 'coop:enemy_fire', bolts: this.coopPendingEnemyBolts.splice(0, 32) });
+    }
+
+    if (this.coopIsHost && this.coopPendingAreaHazards.length > 0) {
+      send({ type: 'coop:area_hazard', hazards: this.coopPendingAreaHazards.splice(0, 8) });
+    }
+
+    this.coopPlayerSyncAccum += dt;
+    if (this.coopPlayerSyncAccum >= 0.05) {
+      this.coopPlayerSyncAccum = 0;
+      send({
+        type: 'coop:player_state',
+        state: {
+          slot: this.coopLocalSlot,
+          x: Number(this.shipX.toFixed(2)),
+          y: Number(this.shipY.toFixed(2)),
+          z: Number(this.shipZ.toFixed(2)),
+          rotZ: Number(this.playerRig.group.rotation.z.toFixed(3)),
+          rotX: Number(this.playerRig.group.rotation.x.toFixed(3)),
+          health: Math.ceil(this.health),
+          maxHealth: this.maxHealth,
+          shield: Math.ceil(this.shield),
+          maxShield: this.maxShield,
+          score: this.score,
+          kills: this.kills,
+          afterburner: this.afterburnerActiveTimer > 0,
+          specialActive: this.specialActiveTimer > 0,
+          shieldPulse: this.shieldPulseActiveTimer > 0,
+          wingmenActive: this.wingmanTimer > 0,
+          downed: this.coopLocalDowned,
+          respawnTimeLeft: Number(Math.max(0, this.coopLocalRespawnTimer).toFixed(1)),
+        },
+      });
+    }
+
+    if (this.coopIsHost) {
+      this.coopWorldSyncAccum += dt;
+      if (this.coopWorldSyncAccum >= 0.066) {
+        this.coopWorldSyncAccum = 0;
+        const boss = bossActive ? this.enemies.find((e) => e.kind === 'dreadnought') : null;
+        send({
+          type: 'coop:world_sync',
+          world: {
+            wave: this.wave,
+            sectorMode: this.sectorMode,
+            waveKills: this.waveKills,
+            waveTotal: this.waveTotal,
+            bossName: boss ? bossTitle : null,
+            bossHpRatio: boss ? Math.max(0, boss.hp / boss.maxHp) : 0,
+            bossChasePhase: this.bossChasePhase,
+            bossChaseTimer: Number(this.bossChaseTimer.toFixed(2)),
+            enemies: this.enemies.map((e) => ({
+              id: e.id,
+              kind: e.kind,
+              x: Number(e.x.toFixed(2)),
+              y: Number(e.y.toFixed(2)),
+              z: Number(e.z.toFixed(2)),
+              hp: Number(e.hp.toFixed(2)),
+              maxHp: e.maxHp,
+              pendingAttack: e.pendingAttack,
+              telegraphTimer: Number(e.telegraphTimer.toFixed(2)),
+              hitFlash: e.hitFlashTimer > 0,
+            })),
+            fragments: this.fragments.map((f) => ({
+              id: f.id,
+              kind: f.kind,
+              x: Number(f.x.toFixed(2)),
+              y: Number(f.y.toFixed(2)),
+              z: Number(f.z.toFixed(2)),
+            })),
+          },
+        });
+      }
+    }
+  }
+
+  private finishCoopMatch(victory: boolean): void {
+    if (this.coopMatchEnded) return;
+    this.coopMatchEnded = true;
+    this.phase = victory ? 'victory' : 'gameover';
+    const p1Score = this.coopLocalSlot === 1 ? this.score : (this.coopPartnerState?.score ?? 0);
+    const p2Score = this.coopLocalSlot === 2 ? this.score : (this.coopPartnerState?.score ?? 0);
+    const p1Kills = this.coopLocalSlot === 1 ? this.kills : (this.coopPartnerState?.kills ?? 0);
+    const p2Kills = this.coopLocalSlot === 2 ? this.kills : (this.coopPartnerState?.kills ?? 0);
+    const p1Name = this.coopLocalSlot === 1 ? this.coopLocalName : (this.coopPartnerInfo?.pilotName || 'PILOT 1');
+    const p2Name = this.coopLocalSlot === 2 ? this.coopLocalName : (this.coopPartnerInfo?.pilotName || 'PILOT 2');
+
+    const summary: CoopMatchEndPayload = {
+      victory,
+      wave: this.wave,
+      teamScore: p1Score + p2Score,
+      p1Score,
+      p2Score,
+      p1Kills,
+      p2Kills,
+      p1Name,
+      p2Name,
+    };
+
+    this.callbacks.onCoopSend?.({ type: 'coop:match_end', summary });
+    this.emitHud();
+    this.callbacks.onCoopMatchEnd?.(summary);
+  }
+
   private emitHud(): void {
     const levelCfg = LEVELS[THREE.MathUtils.clamp(this.wave, 1, 30) - 1];
     const jet = JETS[this.jetId];
@@ -3734,6 +4654,14 @@ export class SpaceShooterEngine {
         nx: THREE.MathUtils.clamp((b.x - this.shipX) / 18, -1, 1),
         nz: THREE.MathUtils.clamp(-b.z / 75, 0, 1),
         kind: 'bomb',
+      });
+    }
+
+    if (this.coopActive && this.coopPartnerState) {
+      radarBlips.push({
+        nx: THREE.MathUtils.clamp((this.coopPartnerRenderX - this.shipX) / 18, -1, 1),
+        nz: THREE.MathUtils.clamp(-this.coopPartnerRenderZ / 75, 0, 1),
+        kind: 'partner',
       });
     }
 
@@ -3793,6 +4721,32 @@ export class SpaceShooterEngine {
       wingmanTimeLeft: this.wingmanTimer,
       equippedMods: [...this.equippedMods],
       radarBlips,
+      coop: this.coopActive
+        ? {
+            active: true,
+            roomCode: this.coopRoomCode,
+            localSlot: this.coopLocalSlot,
+            localDowned: this.coopLocalDowned,
+            localRespawnTimeLeft: Math.max(0, this.coopLocalRespawnTimer),
+            teamScore: this.score + (this.coopPartnerState?.score ?? 0),
+            partner: this.coopPartnerInfo
+              ? {
+                  slot: this.coopPartnerInfo.slot,
+                  pilotName: this.coopPartnerInfo.pilotName,
+                  jetId: this.coopPartnerInfo.jetId,
+                  health: this.coopPartnerState?.health ?? 100,
+                  maxHealth: this.coopPartnerState?.maxHealth ?? 100,
+                  shield: this.coopPartnerState?.shield ?? 100,
+                  maxShield: this.coopPartnerState?.maxShield ?? 100,
+                  score: this.coopPartnerState?.score ?? 0,
+                  kills: this.coopPartnerState?.kills ?? 0,
+                  downed: this.coopPartnerState?.downed ?? false,
+                  respawnTimeLeft: this.coopPartnerState?.respawnTimeLeft ?? 0,
+                  connected: true,
+                }
+              : null,
+          }
+        : null,
     });
   }
 
@@ -3811,6 +4765,7 @@ export class SpaceShooterEngine {
     window.removeEventListener('pointerup', this.onPointerUp);
     canvas.removeEventListener('contextmenu', this.onContextMenu);
 
+    this.clearCoopState();
     this.clearEntities();
     if (this.wingmanLeftMesh) {
       this.scene.remove(this.wingmanLeftMesh);

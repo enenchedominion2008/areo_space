@@ -20,11 +20,18 @@ import {
   Palette,
   Sparkles,
   Cpu,
+  Users,
+  Copy,
+  Check,
+  RefreshCw,
+  LogOut,
+  Radio,
 } from 'lucide-react';
 import {
   CYBER_MODS,
   JET_SKINS,
   JETS,
+  LEVELS,
   TRAIL_COLORS,
   type BackendState,
   type CyberModId,
@@ -35,8 +42,16 @@ import {
   type SaveSlotRecord,
   type TrailColorId,
 } from '../game/types';
+import type { WsConnStatus } from '../api/multiplayerClient';
+import type {
+  CoopMatchEndPayload,
+  OpenRoomListing,
+  RoomStatePayload,
+} from '../game/multiplayerTypes';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 import { JetPreviewCanvas } from './JetPreviewCanvas';
+
+export type ModalTab = 'none' | 'slots' | 'hangar' | 'leaderboard' | 'coop';
 
 interface GameModalsProps {
   phase: GamePhase;
@@ -45,8 +60,8 @@ interface GameModalsProps {
   backendStatus: string | null;
   busy: boolean;
   lastRunCredits: number | null;
-  activeTab: 'none' | 'slots' | 'hangar' | 'leaderboard';
-  setActiveTab: (tab: 'none' | 'slots' | 'hangar' | 'leaderboard') => void;
+  activeTab: ModalTab;
+  setActiveTab: (tab: ModalTab) => void;
   onStartNewGame: (startLevel?: number) => void;
   onResumeGame: () => void;
   onSaveToSlot: (slotId: string) => void;
@@ -61,6 +76,23 @@ interface GameModalsProps {
   onReturnToTitle: () => void;
   onOpenTutorials: () => void;
   suppressPauseModal?: boolean;
+  wsStatus: WsConnStatus;
+  coopRoom: RoomStatePayload | null;
+  coopPlayerId: string | null;
+  openRooms: OpenRoomListing[];
+  coopError: string | null;
+  coopJoinCodeDraft: string;
+  setCoopJoinCodeDraft: (code: string) => void;
+  coopMatchSummary: CoopMatchEndPayload | null;
+  onOpenCoop: () => void;
+  onCreateCoopRoom: (startLevel: number) => void;
+  onJoinCoopRoom: (code: string) => void;
+  onLeaveCoopRoom: () => void;
+  onToggleCoopReady: () => void;
+  onSetCoopLevel: (level: number) => void;
+  onStartCoopMatch: () => void;
+  onRefreshCoopRooms: () => void;
+  onReturnToCoopLobby: () => void;
 }
 
 export const GameModals: React.FC<GameModalsProps> = ({
@@ -86,8 +118,27 @@ export const GameModals: React.FC<GameModalsProps> = ({
   onReturnToTitle,
   onOpenTutorials,
   suppressPauseModal = false,
+  wsStatus,
+  coopRoom,
+  coopPlayerId,
+  openRooms,
+  coopError,
+  coopJoinCodeDraft,
+  setCoopJoinCodeDraft,
+  coopMatchSummary,
+  onOpenCoop,
+  onCreateCoopRoom,
+  onJoinCoopRoom,
+  onLeaveCoopRoom,
+  onToggleCoopReady,
+  onSetCoopLevel,
+  onStartCoopMatch,
+  onRefreshCoopRooms,
+  onReturnToCoopLobby,
 }) => {
   const [pilotDraft, setPilotDraft] = useState(backendState?.profile.pilot_name || 'VANGUARD-01');
+  const [createLevel, setCreateLevel] = useState(1);
+  const [copiedLink, setCopiedLink] = useState(false);
   const [showIOSGuide, setShowIOSGuide] = useState(false);
   const { isInstallable, isInstalled, isIOS, install } = usePWAInstall();
 
@@ -104,26 +155,46 @@ export const GameModals: React.FC<GameModalsProps> = ({
   const autosaveSlot = slots.find((s) => s.slot_id === 'autosave') || slots[0];
   const leaderboard = backendState?.leaderboard ?? [];
 
+  const handleCopyInviteLink = () => {
+    if (!coopRoom) return;
+    const url = `${window.location.origin}${window.location.pathname}?room=${coopRoom.code}`;
+    navigator.clipboard?.writeText(url).catch(() => {});
+    setCopiedLink(true);
+    window.setTimeout(() => setCopiedLink(false), 1800);
+  };
+
   if (activeTab !== 'none') {
     return (
       <div className="fixed inset-0 z-30 flex items-center justify-center p-4 bg-[#02060d]/84 font-mono">
         <div className="w-full max-w-3xl bg-[#06101b] border border-emerald-400/50 rounded-sm shadow-[0_0_40px_rgba(0,255,136,0.16)] overflow-hidden">
           <div className="flex items-center justify-between px-5 py-3.5 border-b border-emerald-500/30 bg-[#040a12]">
             <div className="flex items-center gap-2.5 text-emerald-300 font-bold tracking-[0.18em] text-xs sm:text-sm uppercase">
-              <Database className="w-4 h-4" />
+              {activeTab === 'coop' ? <Users className="w-4 h-4 text-sky-300" /> : <Database className="w-4 h-4" />}
               <span>
                 {activeTab === 'slots' && 'Python SQLite Save Checkpoints'}
                 {activeTab === 'hangar' && 'Vanguard Hangar · Jets & Upgrades'}
                 {activeTab === 'leaderboard' && 'Sector High Scores'}
+                {activeTab === 'coop' && '2P Co-Op Arena · Strict 2-Pilot Room'}
               </span>
             </div>
-            <button
-              type="button"
-              onClick={() => setActiveTab('none')}
-              className="p-1 text-slate-400 hover:text-white transition-colors"
-            >
-              <X className="w-5 h-5" />
-            </button>
+            <div className="flex items-center gap-2">
+              {activeTab === 'hangar' && coopRoom && (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('coop')}
+                  className="px-2.5 py-1 bg-sky-500/20 hover:bg-sky-500/35 border border-sky-400/60 text-sky-200 text-[10px] font-bold uppercase tracking-wider rounded-sm"
+                >
+                  Back to 2P Room
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setActiveTab('none')}
+                className="p-1 text-slate-400 hover:text-white transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
           </div>
 
           <div className="p-4 sm:p-5 max-h-[78vh] overflow-y-auto space-y-4">
@@ -609,6 +680,362 @@ export const GameModals: React.FC<GameModalsProps> = ({
                 )}
               </>
             )}
+
+            {activeTab === 'coop' && (
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-[#040a12] border border-sky-500/35 rounded-sm text-xs">
+                  <div className="flex items-center gap-2">
+                    <Radio
+                      className={`w-3.5 h-3.5 ${
+                        wsStatus === 'connected'
+                          ? 'text-emerald-400'
+                          : wsStatus === 'connecting'
+                          ? 'text-amber-300 animate-pulse'
+                          : 'text-rose-400'
+                      }`}
+                    />
+                    <span className="uppercase tracking-wider text-slate-200 font-bold">
+                      {wsStatus === 'connected'
+                        ? 'ARENA LINK ONLINE · MAX 2 PILOTS'
+                        : wsStatus === 'connecting'
+                        ? 'CONNECTING TO ARENA SERVER...'
+                        : 'ARENA LINK DISCONNECTED'}
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-slate-300">
+                    <span className="font-bold text-white">{profile?.pilot_name || 'VANGUARD-01'}</span>
+                    <span className="mx-1.5 text-slate-500">·</span>
+                    <span style={{ color: activeJet.primaryColor }}>{activeJet.name}</span>
+                  </div>
+                </div>
+
+                {coopError && (
+                  <div className="p-2.5 bg-rose-950/60 border border-rose-500/70 text-rose-200 text-xs font-bold uppercase tracking-wider rounded-sm">
+                    {coopError}
+                  </div>
+                )}
+
+                {!coopRoom ? (
+                  <>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="p-4 bg-[#040a12] border border-emerald-500/40 rounded-sm space-y-3">
+                        <div className="text-xs font-bold text-emerald-300 uppercase tracking-[0.16em]">
+                          Host 2-Player Arena
+                        </div>
+                        <p className="text-[11px] text-slate-400 leading-relaxed">
+                          Create a private or open 2-pilot room. Only 2 pilots can connect and fly together.
+                        </p>
+                        <div>
+                          <label className="block text-[10px] text-slate-400 uppercase mb-1">
+                            Starting Sector Level
+                          </label>
+                          <select
+                            value={createLevel}
+                            onChange={(e) => setCreateLevel(Number(e.target.value))}
+                            className="w-full px-2.5 py-2 bg-[#081320] border border-slate-600 text-white text-xs font-bold rounded-sm focus:outline-none focus:border-emerald-400"
+                          >
+                            {LEVELS.map((lvl) => (
+                              <option key={lvl.level} value={lvl.level}>
+                                LVL {lvl.level} · {lvl.bossTitle}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={wsStatus !== 'connected'}
+                          onClick={() => onCreateCoopRoom(createLevel)}
+                          className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-[#020806] font-extrabold text-xs tracking-[0.18em] uppercase rounded-sm"
+                        >
+                          Create 2P Room
+                        </button>
+                      </div>
+
+                      <div className="p-4 bg-[#040a12] border border-sky-500/40 rounded-sm flex flex-col justify-between space-y-3">
+                        <div className="space-y-2">
+                          <div className="text-xs font-bold text-sky-300 uppercase tracking-[0.16em]">
+                            Join by Room Code
+                          </div>
+                          <p className="text-[11px] text-slate-400 leading-relaxed">
+                            Enter the 4-character squadron code shared by Pilot 1.
+                          </p>
+                          <input
+                            type="text"
+                            maxLength={4}
+                            placeholder="ABCD"
+                            value={coopJoinCodeDraft}
+                            onChange={(e) => setCoopJoinCodeDraft(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+                            className="w-full px-3 py-2 bg-[#081320] border border-sky-500/50 text-white text-base font-extrabold tracking-[0.35em] text-center uppercase rounded-sm focus:outline-none focus:border-sky-300"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          disabled={wsStatus !== 'connected' || coopJoinCodeDraft.trim().length < 4}
+                          onClick={() => onJoinCoopRoom(coopJoinCodeDraft.trim())}
+                          className="w-full py-2.5 bg-sky-500/25 hover:bg-sky-500/40 disabled:opacity-45 border border-sky-400 text-sky-100 font-extrabold text-xs tracking-[0.18em] uppercase rounded-sm"
+                        >
+                          Join 2P Room
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="p-4 bg-[#040a12] border border-slate-700/80 rounded-sm space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-200 uppercase tracking-[0.16em]">
+                          Open Squadrons (1/2 Waiting)
+                        </span>
+                        <button
+                          type="button"
+                          onClick={onRefreshCoopRooms}
+                          className="px-2.5 py-1 bg-[#081320] hover:border-sky-400 border border-slate-600 text-sky-200 text-[10px] font-bold uppercase tracking-wider rounded-sm flex items-center gap-1"
+                        >
+                          <RefreshCw className="w-3 h-3" />
+                          <span>Refresh</span>
+                        </button>
+                      </div>
+
+                      {openRooms.length === 0 ? (
+                        <div className="py-5 text-center text-xs text-slate-400">
+                          No open 1/2 rooms right now — create a room or enter a room code above.
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {openRooms.map((r) => (
+                            <div
+                              key={r.code}
+                              className="flex flex-wrap items-center justify-between gap-2 p-2.5 bg-[#06101b] border border-slate-700 rounded-sm text-xs"
+                            >
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="px-2 py-0.5 bg-sky-500/20 border border-sky-400/60 text-sky-200 font-extrabold tracking-widest">
+                                  {r.code}
+                                </span>
+                                <span className="font-bold text-white">{r.hostName}</span>
+                                <span style={{ color: JETS[r.hostJet]?.primaryColor || '#38bdf8' }}>
+                                  {JETS[r.hostJet]?.name || r.hostJet}
+                                </span>
+                                <span className="text-slate-400">LVL {r.startLevel}</span>
+                                <span className="text-emerald-300 font-bold">
+                                  {r.playersCount}/{r.maxPlayers}
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => onJoinCoopRoom(r.code)}
+                                className="px-3 py-1.5 bg-emerald-500/25 hover:bg-emerald-500/40 border border-emerald-400 text-emerald-100 text-[11px] font-bold uppercase tracking-wider rounded-sm"
+                              >
+                                Join
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('hangar')}
+                        className="px-3.5 py-2 bg-[#040a12] hover:border-amber-400 border border-amber-400/50 text-amber-200 text-xs font-bold uppercase tracking-wider rounded-sm flex items-center gap-1.5"
+                      >
+                        <Wrench className="w-3.5 h-3.5" />
+                        <span>Customize Jet &amp; Mods in Hangar</span>
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  (() => {
+                    const isHost = coopRoom.hostId === coopPlayerId;
+                    const localPlayer = coopRoom.players.find((p) => p.playerId === coopPlayerId) || null;
+                    const slot1 = coopRoom.players.find((p) => p.slot === 1) || null;
+                    const slot2 = coopRoom.players.find((p) => p.slot === 2) || null;
+                    const guestReady = slot2 ? slot2.ready : false;
+                    const canHostLaunch = isHost && coopRoom.players.length === 2 && guestReady;
+
+                    return (
+                      <div className="space-y-4">
+                        <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 bg-[#040a12] border border-sky-400/50 rounded-sm">
+                          <div className="flex flex-wrap items-center gap-3">
+                            <div>
+                              <div className="text-[10px] text-slate-400 uppercase tracking-wider">Room Code</div>
+                              <div className="text-2xl font-black tracking-[0.28em] text-sky-300">
+                                {coopRoom.code}
+                              </div>
+                            </div>
+                            <span
+                              className={`px-2.5 py-1 text-[10px] font-bold uppercase border rounded-sm ${
+                                coopRoom.players.length === 2
+                                  ? 'bg-emerald-500/20 border-emerald-400 text-emerald-200'
+                                  : 'bg-amber-500/20 border-amber-400 text-amber-200'
+                              }`}
+                            >
+                              {coopRoom.players.length}/2 PILOTS LOCKED
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={handleCopyInviteLink}
+                              className="px-3 py-1.5 bg-sky-500/20 hover:bg-sky-500/35 border border-sky-400 text-sky-100 text-[11px] font-bold uppercase tracking-wider rounded-sm flex items-center gap-1.5"
+                            >
+                              {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-300" /> : <Copy className="w-3.5 h-3.5" />}
+                              <span>{copiedLink ? 'Link Copied' : 'Copy Invite Link'}</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={onLeaveCoopRoom}
+                              className="px-3 py-1.5 bg-rose-950/50 hover:bg-rose-900/70 border border-rose-500/50 text-rose-200 text-[11px] font-bold uppercase tracking-wider rounded-sm flex items-center gap-1.5"
+                            >
+                              <LogOut className="w-3.5 h-3.5" />
+                              <span>Leave</span>
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Strict 2-Pilot Bays */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          {[
+                            { slotNum: 1 as const, player: slot1 },
+                            { slotNum: 2 as const, player: slot2 },
+                          ].map(({ slotNum, player }) => {
+                            if (!player) {
+                              return (
+                                <div
+                                  key={slotNum}
+                                  className="p-4 bg-[#040a12]/70 border border-dashed border-sky-500/45 rounded-sm flex flex-col items-center justify-center text-center min-h-[136px] space-y-2"
+                                >
+                                  <div className="text-xs font-bold text-sky-300 uppercase tracking-widest animate-pulse">
+                                    Waiting for Pilot 2 (1/2)
+                                  </div>
+                                  <p className="text-[11px] text-slate-400">
+                                    Share code <strong className="text-white">{coopRoom.code}</strong> or invite link.
+                                    Strict 2-player cap enforced.
+                                  </p>
+                                </div>
+                              );
+                            }
+
+                            const jet = JETS[player.jetId];
+                            const skin = JET_SKINS[player.skinId];
+                            const trail = TRAIL_COLORS[player.trailId];
+                            const isSelf = player.playerId === coopPlayerId;
+                            const isBayHost = player.playerId === coopRoom.hostId;
+
+                            return (
+                              <div
+                                key={slotNum}
+                                className={`p-3.5 rounded-sm border space-y-2 ${
+                                  isSelf
+                                    ? 'bg-emerald-950/30 border-emerald-400/70'
+                                    : 'bg-[#040a12] border-sky-400/50'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                                    SLOT {slotNum} · {isBayHost ? 'HOST' : 'WINGMATE'}
+                                    {isSelf ? ' · YOU' : ''}
+                                  </span>
+                                  <span
+                                    className={`px-2 py-0.5 text-[10px] font-bold uppercase border rounded-sm ${
+                                      isBayHost || player.ready
+                                        ? 'bg-emerald-500/20 border-emerald-400 text-emerald-200'
+                                        : 'bg-amber-500/20 border-amber-400 text-amber-200'
+                                    }`}
+                                  >
+                                    {isBayHost ? 'COMMANDER' : player.ready ? 'READY' : 'STANDBY'}
+                                  </span>
+                                </div>
+
+                                <div className="text-base font-extrabold text-white truncate">
+                                  {player.pilotName}
+                                </div>
+
+                                <div className="text-xs font-bold" style={{ color: jet?.primaryColor || '#38bdf8' }}>
+                                  {jet?.name || player.jetId}
+                                </div>
+
+                                <div className="text-[10px] text-slate-400 flex flex-wrap gap-x-2 gap-y-0.5">
+                                  <span>Livery: {skin?.name || player.skinId}</span>
+                                  <span>·</span>
+                                  <span>Trail: {trail?.name || player.trailId}</span>
+                                  <span>·</span>
+                                  <span>{player.equippedMods.length}/2 Mods</span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-[#040a12] border border-slate-700/80 rounded-sm">
+                          <div className="flex items-center gap-2 text-xs">
+                            <span className="text-slate-400 uppercase">Mission Level:</span>
+                            {isHost ? (
+                              <select
+                                value={coopRoom.startLevel}
+                                onChange={(e) => onSetCoopLevel(Number(e.target.value))}
+                                className="px-2.5 py-1.5 bg-[#081320] border border-emerald-500/50 text-white text-xs font-bold rounded-sm focus:outline-none"
+                              >
+                                {LEVELS.map((lvl) => (
+                                  <option key={lvl.level} value={lvl.level}>
+                                    LVL {lvl.level} · {lvl.bossTitle}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <span className="font-bold text-emerald-300">
+                                LVL {coopRoom.startLevel} · {LEVELS[coopRoom.startLevel - 1]?.bossTitle}
+                              </span>
+                            )}
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => setActiveTab('hangar')}
+                            className="px-3 py-1.5 bg-[#081320] hover:border-amber-400 border border-amber-400/50 text-amber-200 text-xs font-bold uppercase tracking-wider rounded-sm flex items-center gap-1.5"
+                          >
+                            <Wrench className="w-3.5 h-3.5" />
+                            <span>Hangar Loadout</span>
+                          </button>
+                        </div>
+
+                        <div className="flex flex-wrap items-center justify-end gap-3">
+                          {isHost ? (
+                            <button
+                              type="button"
+                              disabled={!canHostLaunch}
+                              onClick={onStartCoopMatch}
+                              className="w-full sm:w-auto px-6 py-3 bg-emerald-500 hover:bg-emerald-400 disabled:bg-slate-800 disabled:text-slate-400 disabled:border disabled:border-slate-600 text-[#020806] font-extrabold text-xs tracking-[0.2em] uppercase rounded-sm flex items-center justify-center gap-2"
+                            >
+                              <Play className="w-4 h-4 fill-current" />
+                              <span>
+                                {coopRoom.players.length < 2
+                                  ? 'Waiting for Pilot 2 (1/2)'
+                                  : !guestReady
+                                  ? 'Waiting for Pilot 2 Ready'
+                                  : 'Launch 2P Arena'}
+                              </span>
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={onToggleCoopReady}
+                              className={`w-full sm:w-auto px-6 py-3 font-extrabold text-xs tracking-[0.2em] uppercase rounded-sm border flex items-center justify-center gap-2 ${
+                                localPlayer?.ready
+                                  ? 'bg-emerald-500/25 border-emerald-400 text-emerald-200 hover:bg-emerald-500/35'
+                                  : 'bg-sky-500 hover:bg-sky-400 border-sky-300 text-[#02080e]'
+                              }`}
+                            >
+                              <Check className="w-4 h-4" />
+                              <span>{localPlayer?.ready ? 'Ready · Click to Unready' : 'Ready for Launch'}</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -715,6 +1142,15 @@ export const GameModals: React.FC<GameModalsProps> = ({
               <span>Launch Mission</span>
             </button>
 
+            <button
+              type="button"
+              onClick={onOpenCoop}
+              className="px-5 py-3 bg-sky-500/20 hover:bg-sky-500/35 border border-sky-400 text-sky-100 font-extrabold text-xs tracking-[0.18em] uppercase rounded-sm shadow-[0_0_20px_rgba(56,189,248,0.22)] flex items-center gap-2 transition-colors"
+            >
+              <Users className="w-4 h-4 text-sky-300" />
+              <span>2P Co-Op Arena</span>
+            </button>
+
             {autosaveSlot && (
               <button
                 type="button"
@@ -792,14 +1228,22 @@ export const GameModals: React.FC<GameModalsProps> = ({
   // Pause Modal
   if (phase === 'paused') {
     if (suppressPauseModal) return null;
+    const isCoopMatch = Boolean(hud.coop?.active);
     return (
       <div className="end-screen-overlay fixed inset-0 z-20 flex items-center justify-center p-4 bg-[#02060d]/78 font-mono">
         <div className="pause-screen-card w-full max-w-md max-h-[calc(100vh-1rem)] overflow-y-auto bg-[#06101b] border border-emerald-400/50 p-6 rounded-sm shadow-[0_0_35px_rgba(0,255,136,0.18)] space-y-5">
           <div className="text-center">
-            <div className="end-screen-subtitle text-xs tracking-[0.25em] text-emerald-300 uppercase">Mission Paused</div>
+            <div className="end-screen-subtitle text-xs tracking-[0.25em] text-emerald-300 uppercase">
+              {isCoopMatch ? `2P Co-Op Live · Room ${hud.coop?.roomCode}` : 'Mission Paused'}
+            </div>
             <h2 className="end-screen-title mt-1 text-2xl font-bold text-white tracking-wider">
-              LEVEL {hud.wave}/{hud.totalLevels} · {hud.score.toLocaleString()} PTS
+              LEVEL {hud.wave}/{hud.totalLevels} · {(isCoopMatch ? hud.coop?.teamScore ?? hud.score : hud.score).toLocaleString()} PTS
             </h2>
+            {isCoopMatch && (
+              <p className="mt-1 text-[11px] text-sky-300/90">
+                Arena simulation remains live while your wingmate is flying.
+              </p>
+            )}
           </div>
 
           <div className="end-screen-actions space-y-2.5">
@@ -809,7 +1253,7 @@ export const GameModals: React.FC<GameModalsProps> = ({
               className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-[#020806] font-extrabold text-xs tracking-[0.2em] uppercase rounded-sm flex items-center justify-center gap-2"
             >
               <Play className="w-4 h-4 fill-current" />
-              <span>Resume Flight</span>
+              <span>{isCoopMatch ? 'Resume Controls' : 'Resume Flight'}</span>
             </button>
 
             <button
@@ -821,24 +1265,28 @@ export const GameModals: React.FC<GameModalsProps> = ({
               <span>Tutorials</span>
             </button>
 
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => onSaveToSlot('autosave')}
-              className="w-full py-2.5 bg-fuchsia-500/20 hover:bg-fuchsia-500/35 border border-fuchsia-400 text-fuchsia-100 font-bold text-xs tracking-[0.18em] uppercase rounded-sm flex items-center justify-center gap-2"
-            >
-              <Save className="w-4 h-4" />
-              <span>{busy ? 'Saving to Python...' : 'Save Checkpoint (Python DB)'}</span>
-            </button>
+            {!isCoopMatch && (
+              <>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => onSaveToSlot('autosave')}
+                  className="w-full py-2.5 bg-fuchsia-500/20 hover:bg-fuchsia-500/35 border border-fuchsia-400 text-fuchsia-100 font-bold text-xs tracking-[0.18em] uppercase rounded-sm flex items-center justify-center gap-2"
+                >
+                  <Save className="w-4 h-4" />
+                  <span>{busy ? 'Saving to Python...' : 'Save Checkpoint (Python DB)'}</span>
+                </button>
 
-            <button
-              type="button"
-              onClick={() => setActiveTab('slots')}
-              className="w-full py-2.5 bg-[#040a12] hover:border-emerald-400 border border-slate-600 text-slate-200 font-semibold text-xs tracking-[0.18em] uppercase rounded-sm flex items-center justify-center gap-2"
-            >
-              <FolderOpen className="w-4 h-4 text-emerald-300" />
-              <span>Manage Save Slots</span>
-            </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('slots')}
+                  className="w-full py-2.5 bg-[#040a12] hover:border-emerald-400 border border-slate-600 text-slate-200 font-semibold text-xs tracking-[0.18em] uppercase rounded-sm flex items-center justify-center gap-2"
+                >
+                  <FolderOpen className="w-4 h-4 text-emerald-300" />
+                  <span>Manage Save Slots</span>
+                </button>
+              </>
+            )}
 
             <button
               type="button"
@@ -846,7 +1294,7 @@ export const GameModals: React.FC<GameModalsProps> = ({
               className="w-full py-2.5 bg-[#040a12] hover:border-rose-400 border border-slate-700 text-slate-300 font-semibold text-xs tracking-[0.18em] uppercase rounded-sm flex items-center justify-center gap-2"
             >
               <Home className="w-4 h-4" />
-              <span>Abort to Title</span>
+              <span>{isCoopMatch ? 'Leave 2P Match' : 'Abort to Title'}</span>
             </button>
           </div>
         </div>
@@ -859,7 +1307,7 @@ export const GameModals: React.FC<GameModalsProps> = ({
     const isVictory = phase === 'victory';
     const accuracy = hud.shotsFired > 0 ? Math.round((hud.shotsHit / hud.shotsFired) * 100) : 0;
     const credits = profile?.credits ?? 0;
-    const canRevive = !isVictory && credits >= 1000;
+    const canRevive = !isVictory && !coopMatchSummary && credits >= 1000;
     return (
       <div className="end-screen-overlay fixed inset-0 z-20 flex items-center justify-center p-4 bg-[#02060d]/84 font-mono">
         <div
@@ -876,33 +1324,85 @@ export const GameModals: React.FC<GameModalsProps> = ({
               }`}
             >
               {isVictory && <Award className="w-4 h-4" />}
-              <span>{isVictory ? 'All 30 Sectors Liberated' : 'Hull Integrity Lost'}</span>
+              <span>
+                {coopMatchSummary
+                  ? isVictory
+                    ? '2P Squadron · All 30 Sectors Liberated'
+                    : '2P Squadron Destroyed'
+                  : isVictory
+                  ? 'All 30 Sectors Liberated'
+                  : 'Hull Integrity Lost'}
+              </span>
             </div>
             <h2 className="end-screen-title mt-1 text-3xl font-extrabold text-white tracking-wider">
-              {isVictory ? 'CAMPAIGN VICTORY' : 'MISSION ENDED'}
+              {coopMatchSummary
+                ? isVictory
+                  ? '2P CO-OP VICTORY'
+                  : 'SQUADRON DOWN'
+                : isVictory
+                ? 'CAMPAIGN VICTORY'
+                : 'MISSION ENDED'}
             </h2>
           </div>
 
-          <div className="end-screen-stats grid grid-cols-2 gap-2.5 text-xs">
-            <div className="end-screen-stat p-3 bg-[#040a12] border border-slate-800">
-              <div className="text-slate-400">FINAL SCORE</div>
-              <div className="end-screen-stat-value text-lg font-bold text-emerald-300 tabular-nums">
-                {hud.score.toLocaleString()}
+          {coopMatchSummary ? (
+            <div className="space-y-2.5 text-xs">
+              <div className="grid grid-cols-2 gap-2.5">
+                <div className="p-3 bg-[#040a12] border border-slate-800">
+                  <div className="text-slate-400">TEAM SCORE</div>
+                  <div className="text-lg font-bold text-emerald-300 tabular-nums">
+                    {coopMatchSummary.teamScore.toLocaleString()}
+                  </div>
+                </div>
+                <div className="p-3 bg-[#040a12] border border-slate-800">
+                  <div className="text-slate-400">LEVEL REACHED</div>
+                  <div className="text-lg font-bold text-white tabular-nums">
+                    LEVEL {coopMatchSummary.wave}/{hud.totalLevels}
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2.5">
+                <div className="p-3 bg-[#04111d] border border-emerald-500/40">
+                  <div className="text-[10px] text-emerald-300 uppercase">P1 · {coopMatchSummary.p1Name}</div>
+                  <div className="mt-1 text-base font-bold text-white tabular-nums">
+                    {coopMatchSummary.p1Score.toLocaleString()} PTS
+                  </div>
+                  <div className="text-[11px] text-slate-400 tabular-nums">{coopMatchSummary.p1Kills} Kills</div>
+                </div>
+                <div className="p-3 bg-[#04111d] border border-sky-500/40">
+                  <div className="text-[10px] text-sky-300 uppercase">P2 · {coopMatchSummary.p2Name}</div>
+                  <div className="mt-1 text-base font-bold text-white tabular-nums">
+                    {coopMatchSummary.p2Score.toLocaleString()} PTS
+                  </div>
+                  <div className="text-[11px] text-slate-400 tabular-nums">{coopMatchSummary.p2Kills} Kills</div>
+                </div>
               </div>
             </div>
-            <div className="end-screen-stat p-3 bg-[#040a12] border border-slate-800">
-              <div className="text-slate-400">LEVEL REACHED</div>
-              <div className="end-screen-stat-value text-lg font-bold text-white tabular-nums">LEVEL {hud.wave}/{hud.totalLevels}</div>
+          ) : (
+            <div className="end-screen-stats grid grid-cols-2 gap-2.5 text-xs">
+              <div className="end-screen-stat p-3 bg-[#040a12] border border-slate-800">
+                <div className="text-slate-400">FINAL SCORE</div>
+                <div className="end-screen-stat-value text-lg font-bold text-emerald-300 tabular-nums">
+                  {hud.score.toLocaleString()}
+                </div>
+              </div>
+              <div className="end-screen-stat p-3 bg-[#040a12] border border-slate-800">
+                <div className="text-slate-400">LEVEL REACHED</div>
+                <div className="end-screen-stat-value text-lg font-bold text-white tabular-nums">
+                  LEVEL {hud.wave}/{hud.totalLevels}
+                </div>
+              </div>
+              <div className="end-screen-stat p-3 bg-[#040a12] border border-slate-800">
+                <div className="text-slate-400">HOSTILES DESTROYED</div>
+                <div className="end-screen-stat-value text-lg font-bold text-orange-300 tabular-nums">{hud.kills}</div>
+              </div>
+              <div className="end-screen-stat p-3 bg-[#040a12] border border-slate-800">
+                <div className="text-slate-400">ACCURACY</div>
+                <div className="end-screen-stat-value text-lg font-bold text-fuchsia-300 tabular-nums">{accuracy}%</div>
+              </div>
             </div>
-            <div className="end-screen-stat p-3 bg-[#040a12] border border-slate-800">
-              <div className="text-slate-400">HOSTILES DESTROYED</div>
-              <div className="end-screen-stat-value text-lg font-bold text-orange-300 tabular-nums">{hud.kills}</div>
-            </div>
-            <div className="end-screen-stat p-3 bg-[#040a12] border border-slate-800">
-              <div className="text-slate-400">ACCURACY</div>
-              <div className="end-screen-stat-value text-lg font-bold text-fuchsia-300 tabular-nums">{accuracy}%</div>
-            </div>
-          </div>
+          )}
 
           <div className="end-screen-credits p-2.5 bg-[#040a12] border border-amber-500/40 text-center space-y-1">
             {lastRunCredits !== null && (
@@ -917,38 +1417,51 @@ export const GameModals: React.FC<GameModalsProps> = ({
           </div>
 
           <div className="end-screen-actions space-y-2.5">
-            {!isVictory && (
+            {coopMatchSummary ? (
               <button
                 type="button"
-                disabled={busy || !canRevive}
-                onClick={onReviveWithCredits}
-                className={`w-full py-2.5 font-extrabold text-xs tracking-[0.16em] uppercase rounded-sm flex items-center justify-center gap-2 transition-colors border ${
-                  canRevive
-                    ? 'bg-amber-500 hover:bg-amber-400 border-amber-300 text-[#090500] shadow-[0_0_22px_rgba(245,158,11,0.35)]'
-                    : 'bg-[#040a12] border-slate-700 text-slate-500 cursor-not-allowed'
-                }`}
+                onClick={onReturnToCoopLobby}
+                className="w-full py-2.5 bg-sky-500 hover:bg-sky-400 text-[#02080e] font-extrabold text-xs tracking-[0.2em] uppercase rounded-sm flex items-center justify-center gap-2 transition-colors"
               >
-                <Zap className="w-4 h-4" />
-                <span>
-                  {canRevive
-                    ? `CONTINUE LEVEL ${hud.wave} · 1,000 CR`
-                    : `NEED 1,000 CR TO CONTINUE (${credits.toLocaleString()}/1,000)`}
-                </span>
+                <Users className="w-4 h-4" />
+                <span>{coopRoom ? 'Back to 2P Room Lobby' : 'Re-Open 2P Co-Op'}</span>
               </button>
-            )}
+            ) : (
+              <>
+                {!isVictory && (
+                  <button
+                    type="button"
+                    disabled={busy || !canRevive}
+                    onClick={onReviveWithCredits}
+                    className={`w-full py-2.5 font-extrabold text-xs tracking-[0.16em] uppercase rounded-sm flex items-center justify-center gap-2 transition-colors border ${
+                      canRevive
+                        ? 'bg-amber-500 hover:bg-amber-400 border-amber-300 text-[#090500] shadow-[0_0_22px_rgba(245,158,11,0.35)]'
+                        : 'bg-[#040a12] border-slate-700 text-slate-500 cursor-not-allowed'
+                    }`}
+                  >
+                    <Zap className="w-4 h-4" />
+                    <span>
+                      {canRevive
+                        ? `CONTINUE LEVEL ${hud.wave} · 1,000 CR`
+                        : `NEED 1,000 CR TO CONTINUE (${credits.toLocaleString()}/1,000)`}
+                    </span>
+                  </button>
+                )}
 
-            <button
-              type="button"
-              onClick={() => onStartNewGame(1)}
-              className={`w-full py-2.5 font-extrabold text-xs tracking-[0.2em] uppercase rounded-sm flex items-center justify-center gap-2 transition-colors ${
-                canRevive
-                  ? 'bg-emerald-500/20 hover:bg-emerald-500/35 border border-emerald-400/70 text-emerald-200'
-                  : 'bg-emerald-500 hover:bg-emerald-400 text-[#020806]'
-              }`}
-            >
-              <RotateCcw className="w-4 h-4" />
-              <span>{isVictory ? 'Re-Launch Campaign' : 'Restart From Level 1'}</span>
-            </button>
+                <button
+                  type="button"
+                  onClick={() => onStartNewGame(1)}
+                  className={`w-full py-2.5 font-extrabold text-xs tracking-[0.2em] uppercase rounded-sm flex items-center justify-center gap-2 transition-colors ${
+                    canRevive
+                      ? 'bg-emerald-500/20 hover:bg-emerald-500/35 border border-emerald-400/70 text-emerald-200'
+                      : 'bg-emerald-500 hover:bg-emerald-400 text-[#020806]'
+                  }`}
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  <span>{isVictory ? 'Re-Launch Campaign' : 'Restart From Level 1'}</span>
+                </button>
+              </>
+            )}
 
             <div className="grid grid-cols-2 gap-2">
               <button

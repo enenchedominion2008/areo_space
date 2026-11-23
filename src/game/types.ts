@@ -636,7 +636,32 @@ export type EnemyBoltPattern = 'aimed' | 'spread' | 'tracking';
 export interface RadarBlip {
   nx: number;
   nz: number;
-  kind: EnemyKind | 'bomb';
+  kind: EnemyKind | 'bomb' | 'partner';
+}
+
+export interface CoopPartnerHud {
+  slot: 1 | 2;
+  pilotName: string;
+  jetId: JetId;
+  health: number;
+  maxHealth: number;
+  shield: number;
+  maxShield: number;
+  score: number;
+  kills: number;
+  downed: boolean;
+  respawnTimeLeft: number;
+  connected: boolean;
+}
+
+export interface CoopHudState {
+  active: boolean;
+  roomCode: string;
+  localSlot: 1 | 2;
+  localDowned: boolean;
+  localRespawnTimeLeft: number;
+  teamScore: number;
+  partner: CoopPartnerHud | null;
 }
 
 export interface HudSnapshot {
@@ -686,6 +711,7 @@ export interface HudSnapshot {
   wingmanTimeLeft: number;
   equippedMods: CyberModId[];
   radarBlips: RadarBlip[];
+  coop?: CoopHudState | null;
 }
 
 export interface GameCheckpointPayload {
