@@ -144,8 +144,9 @@ export const GameModals: React.FC<GameModalsProps> = ({
   const [jetSlideDir, setJetSlideDir] = useState<1 | -1>(1);
   const [inViewDrawer, setInViewDrawer] = useState<'none' | 'colors' | 'thrusters'>('none');
   const [hangarBottomTab, setHangarBottomTab] = useState<'upgrades' | 'mods'>('upgrades');
-  const [showIOSGuide, setShowIOSGuide] = useState(false);
-  const { isInstallable, isInstalled, isIOS, install } = usePWAInstall();
+  const [showInstallGuide, setShowInstallGuide] = useState(false);
+  const [copiedAppUrl, setCopiedAppUrl] = useState(false);
+  const { isInstallable, isInstalled, isIOS, isAndroid, install } = usePWAInstall();
 
   const profile = backendState?.profile;
   const selectedJetId: JetId = profile?.selected_jet || hud.jetId || 'vanguard';
@@ -166,6 +167,21 @@ export const GameModals: React.FC<GameModalsProps> = ({
     navigator.clipboard?.writeText(url).catch(() => {});
     setCopiedLink(true);
     window.setTimeout(() => setCopiedLink(false), 1800);
+  };
+
+  const handleInstallClick = async () => {
+    if (isInstallable) {
+      const accepted = await install();
+      if (accepted) return;
+    }
+    setShowInstallGuide(true);
+  };
+
+  const handleCopyAppUrl = () => {
+    const url = window.location.origin;
+    navigator.clipboard?.writeText(url).catch(() => {});
+    setCopiedAppUrl(true);
+    window.setTimeout(() => setCopiedAppUrl(false), 1800);
   };
 
   if (activeTab !== 'none') {
@@ -1146,24 +1162,14 @@ export const GameModals: React.FC<GameModalsProps> = ({
           </div>
 
           <div className="flex items-center gap-2 pointer-events-auto">
-            {!isInstalled && isInstallable && (
+            {!isInstalled && (
               <button
                 type="button"
-                onClick={install}
-                className="px-3 py-1.5 bg-sky-500/25 hover:bg-sky-500/40 border border-sky-400 text-sky-100 text-[11px] font-bold uppercase tracking-wider rounded-sm flex items-center gap-1.5"
+                onClick={handleInstallClick}
+                className="px-3 py-1.5 bg-sky-500/25 hover:bg-sky-500/40 border border-sky-400 text-sky-100 text-[11px] font-bold uppercase tracking-wider rounded-sm flex items-center gap-1.5 shadow-[0_0_16px_rgba(56,189,248,0.22)] transition-colors"
               >
-                <Download className="w-3.5 h-3.5" />
-                <span>Install App</span>
-              </button>
-            )}
-            {!isInstalled && !isInstallable && isIOS && (
-              <button
-                type="button"
-                onClick={() => setShowIOSGuide(true)}
-                className="px-3 py-1.5 bg-sky-500/20 border border-sky-400/70 text-sky-100 text-[11px] font-bold uppercase tracking-wider rounded-sm flex items-center gap-1.5"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>Install iOS App</span>
+                <Download className="w-3.5 h-3.5 text-sky-300" />
+                <span>{isInstallable ? 'Install App' : 'Get Phone App'}</span>
               </button>
             )}
 
@@ -1288,21 +1294,75 @@ export const GameModals: React.FC<GameModalsProps> = ({
           WASD / Touch Move · Space/F Afterburner · Q Special · R Missiles · C Shield Pulse · Shift Roll · Esc Pause
         </div>
 
-        {showIOSGuide && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 pointer-events-auto">
-            <div className="w-full max-w-sm bg-[#06101b] border border-sky-400/60 p-5 rounded-sm space-y-3">
-              <h3 className="text-sm font-bold text-sky-300 uppercase tracking-wider">Install on iPhone / iPad</h3>
+        {showInstallGuide && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 pointer-events-auto">
+            <div className="w-full max-w-md bg-[#06101b] border border-sky-400/60 p-5 rounded-sm space-y-4 shadow-[0_0_35px_rgba(56,189,248,0.22)]">
+              <div className="flex items-center justify-between border-b border-sky-500/30 pb-2.5">
+                <h3 className="text-sm font-bold text-sky-300 uppercase tracking-wider flex items-center gap-2">
+                  <Download className="w-4 h-4" />
+                  <span>Install Vanguard Vector as App</span>
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setShowInstallGuide(false)}
+                  className="text-slate-400 hover:text-white"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
               <p className="text-xs text-slate-300 leading-relaxed">
-                1. Tap the <strong>Share</strong> icon in Safari.<br />
-                2. Scroll down and select <strong>Add to Home Screen</strong>.
+                Install directly onto your home screen to launch fullscreen with its own app icon, no browser bar, and offline solo support:
               </p>
-              <button
-                type="button"
-                onClick={() => setShowIOSGuide(false)}
-                className="w-full py-2 bg-sky-500/25 border border-sky-400 text-sky-100 text-xs font-bold uppercase"
-              >
-                Close
-              </button>
+
+              {isIOS ? (
+                <div className="p-3 bg-[#040a12] border border-slate-700/80 rounded-sm space-y-1.5 text-xs text-slate-200">
+                  <div className="text-[11px] font-bold text-sky-300 uppercase tracking-wider">iPhone / iPad (Safari)</div>
+                  <p>1. Open this link directly in <strong>Safari</strong>.</p>
+                  <p>2. Tap the <strong>Share</strong> icon in the bottom/top bar.</p>
+                  <p>3. Tap <strong>Add to Home Screen</strong> → <strong>Add</strong>.</p>
+                </div>
+              ) : isAndroid ? (
+                <div className="p-3 bg-[#040a12] border border-slate-700/80 rounded-sm space-y-1.5 text-xs text-slate-200">
+                  <div className="text-[11px] font-bold text-emerald-300 uppercase tracking-wider">Android (Chrome / Edge)</div>
+                  <p>1. Open this link directly in <strong>Chrome</strong> (not inside an in-app preview).</p>
+                  <p>2. Tap the <strong>⋮ menu</strong> at top-right → <strong>Add to Home screen</strong> → <strong>Install</strong>.</p>
+                  <p className="text-[11px] text-slate-400">Chrome creates a standalone fullscreen app on your home screen & app drawer.</p>
+                </div>
+              ) : (
+                <div className="space-y-2.5 text-xs text-slate-200">
+                  <div className="p-3 bg-[#040a12] border border-slate-700/80 rounded-sm space-y-1">
+                    <div className="text-[11px] font-bold text-emerald-300 uppercase tracking-wider">Android Phone</div>
+                    <p>Open in Chrome → tap <strong>⋮</strong> → <strong>Install app</strong> (or <strong>Add to Home screen</strong>).</p>
+                  </div>
+                  <div className="p-3 bg-[#040a12] border border-slate-700/80 rounded-sm space-y-1">
+                    <div className="text-[11px] font-bold text-sky-300 uppercase tracking-wider">iPhone / iPad</div>
+                    <p>Open in Safari → tap <strong>Share</strong> → <strong>Add to Home Screen</strong>.</p>
+                  </div>
+                  <div className="p-3 bg-[#040a12] border border-slate-700/80 rounded-sm space-y-1">
+                    <div className="text-[11px] font-bold text-fuchsia-300 uppercase tracking-wider">Desktop (Chrome / Edge)</div>
+                    <p>Click the <strong>Install</strong> icon on the right side of your address bar.</p>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={handleCopyAppUrl}
+                  className="flex-1 py-2 bg-[#040a12] hover:border-emerald-400 border border-emerald-500/50 text-emerald-200 text-xs font-bold uppercase tracking-wider rounded-sm flex items-center justify-center gap-1.5"
+                >
+                  {copiedAppUrl ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedAppUrl ? 'Link Copied' : 'Copy App Link'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowInstallGuide(false)}
+                  className="px-5 py-2 bg-sky-500/25 hover:bg-sky-500/40 border border-sky-400 text-sky-100 text-xs font-bold uppercase rounded-sm"
+                >
+                  Close
+                </button>
+              </div>
             </div>
           </div>
         )}

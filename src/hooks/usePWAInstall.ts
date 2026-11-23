@@ -5,19 +5,31 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
 }
 
+function checkStandaloneMode(): boolean {
+  if (typeof window === 'undefined') return false;
+  return (
+    window.matchMedia('(display-mode: standalone)').matches ||
+    window.matchMedia('(display-mode: fullscreen)').matches ||
+    (window.navigator as unknown as { standalone?: boolean }).standalone === true
+  );
+}
+
 export function usePWAInstall() {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
-  const [isInstalled, setIsInstalled] = useState(false);
+  const [isInstalled, setIsInstalled] = useState<boolean>(() => checkStandaloneMode());
   const [isIOS, setIsIOS] = useState(false);
+  const [isAndroid, setIsAndroid] = useState(false);
 
   useEffect(() => {
-    const isStandalone =
-      window.matchMedia('(display-mode: standalone)').matches ||
-      (window.navigator as unknown as { standalone?: boolean }).standalone === true;
-    setIsInstalled(isStandalone);
+    setIsInstalled(checkStandaloneMode());
 
     const ua = window.navigator.userAgent.toLowerCase();
     setIsIOS(/iphone|ipad|ipod/.test(ua));
+    setIsAndroid(/android/.test(ua));
+
+    const standaloneMq = window.matchMedia('(display-mode: standalone)');
+    const fullscreenMq = window.matchMedia('(display-mode: fullscreen)');
+    const onDisplayModeChange = () => setIsInstalled(checkStandaloneMode());
 
     const onBeforeInstall = (e: Event) => {
       e.preventDefault();
@@ -29,9 +41,13 @@ export function usePWAInstall() {
       setDeferredPrompt(null);
     };
 
+    standaloneMq.addEventListener?.('change', onDisplayModeChange);
+    fullscreenMq.addEventListener?.('change', onDisplayModeChange);
     window.addEventListener('beforeinstallprompt', onBeforeInstall);
     window.addEventListener('appinstalled', onAppInstalled);
     return () => {
+      standaloneMq.removeEventListener?.('change', onDisplayModeChange);
+      fullscreenMq.removeEventListener?.('change', onDisplayModeChange);
       window.removeEventListener('beforeinstallprompt', onBeforeInstall);
       window.removeEventListener('appinstalled', onAppInstalled);
     };
@@ -53,6 +69,7 @@ export function usePWAInstall() {
     isInstallable: !!deferredPrompt,
     isInstalled,
     isIOS,
+    isAndroid,
     install,
   };
 }

@@ -36,16 +36,20 @@ export default defineConfig(() => {
       },
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['icon.svg', 'apple-touch-icon.png'],
+        injectRegister: false,
+        includeAssets: ['favicon.ico', 'icon.svg', 'apple-touch-icon.png'],
         manifest: {
           id: '/',
-          name: 'Vanguard Vector 3D',
+          name: 'Vanguard Vector',
           short_name: 'Vanguard3D',
-          description: '20-level 3D cyber-trench space shooter with distinct jets, special powers, and Python save states.',
+          description:
+            '30-level 3D cyber-trench space shooter with 8 jets, futuristic liveries, offline solo play, and 2P co-op.',
           theme_color: '#02060d',
           background_color: '#02060d',
-          display: 'standalone',
+          display: 'fullscreen',
+          display_override: ['fullscreen', 'standalone'],
           orientation: 'landscape',
+          categories: ['games', 'arcade', 'action'],
           start_url: '/',
           scope: '/',
           icons: [
@@ -72,7 +76,7 @@ export default defineConfig(() => {
         workbox: {
           maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
-          navigateFallbackDenylist: [/^\/api\//],
+          navigateFallbackDenylist: [/^\/api\//, /^\/ws/],
         },
         devOptions: {
           enabled: true,

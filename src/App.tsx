@@ -15,6 +15,7 @@ import { MultiplayerClient, type WsConnStatus } from './api/multiplayerClient';
 import { GameHud } from './components/GameHud';
 import { GameModals, type ModalTab } from './components/GameModals';
 import { TutorialOverlay } from './components/TutorialOverlay';
+import { useOnlineStatus } from './hooks/useOnlineStatus';
 import { SpaceShooterEngine } from './game/engine';
 import type {
   CoopMatchEndPayload,
@@ -152,6 +153,7 @@ export default function App() {
   const [coopError, setCoopError] = useState<string | null>(null);
   const [coopJoinCodeDraft, setCoopJoinCodeDraft] = useState<string>(initialRoomCode);
   const [coopMatchSummary, setCoopMatchSummary] = useState<CoopMatchEndPayload | null>(null);
+  const isOnline = useOnlineStatus();
 
   const handleSkipIntro = useCallback(() => setShowIntroVideo(false), []);
 
@@ -183,15 +185,38 @@ export default function App() {
         );
         if (healthRes?.python_version) {
           setBackendStatus(`PYTHON ${healthRes.python_version} · SQLITE`);
+        } else {
+          setBackendStatus('OFFLINE · LOCAL SAVE');
         }
       } catch {
-        if (active) setBackendStatus('PYTHON BACKEND OFFLINE');
+        if (active) setBackendStatus('OFFLINE · LOCAL SAVE');
       }
     })();
     return () => {
       active = false;
     };
-  }, []);
+  }, [isOnline]);
+
+  // Keep phone screen awake during active flight when installed or playing on mobile
+  useEffect(() => {
+    if (hud.phase !== 'playing' || !('wakeLock' in navigator)) return;
+    let sentinel: { release: () => Promise<void> } | null = null;
+    let cancelled = false;
+    (navigator as Navigator & { wakeLock?: { request: (type: 'screen') => Promise<{ release: () => Promise<void> }> } })
+      .wakeLock?.request('screen')
+      .then((s) => {
+        if (cancelled) {
+          void s.release().catch(() => {});
+        } else {
+          sentinel = s;
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      if (sentinel) void sentinel.release().catch(() => {});
+    };
+  }, [hud.phase]);
 
   // Mount isolated Three.js engine once
   useEffect(() => {
@@ -834,7 +859,7 @@ export default function App() {
   ]);
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden bg-[#02060d] touch-none">
+    <div className="relative w-screen h-[100dvh] overflow-hidden bg-[#02060d] touch-none">
       <div ref={canvasMountRef} className="fixed inset-0 w-full h-full touch-none" />
 
       {showIntroVideo && (
@@ -938,6 +963,13 @@ export default function App() {
           onTriggerStepAction={() => beginLiveTutorialPlay(currentTutorialStep.id)}
           onSkip={handleSkipTutorials}
         />
+      )}
+
+      {!isOnline && (
+        <div className="fixed bottom-3 left-3 z-40 pointer-events-none flex items-center gap-2 rounded-sm border border-amber-400/70 bg-[#040d17]/95 px-3 py-1.5 font-mono text-[11px] font-bold uppercase tracking-wider text-amber-200 shadow-[0_0_20px_rgba(245,158,11,0.25)]">
+          <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
+          <span>Offline Mode · Local Save Active</span>
+        </div>
       )}
 
       {toast && (
