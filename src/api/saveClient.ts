@@ -1,4 +1,12 @@
-import type { BackendState, GameCheckpointPayload, JetId, SaveSlotRecord } from '../game/types';
+import type {
+  BackendState,
+  CyberModId,
+  GameCheckpointPayload,
+  JetId,
+  JetSkinId,
+  SaveSlotRecord,
+  TrailColorId,
+} from '../game/types';
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
@@ -97,6 +105,28 @@ export async function selectJetInPython(jetId: JetId): Promise<BackendState> {
   const res = await requestJson<{ ok: boolean; state: BackendState }>('/api/jet', {
     method: 'POST',
     body: JSON.stringify({ jet_id: jetId }),
+  });
+  return res.state;
+}
+
+export async function setCosmeticInPython(
+  kind: 'skin' | 'trail',
+  id: JetSkinId | TrailColorId
+): Promise<BackendState> {
+  const res = await requestJson<{ ok: boolean; state: BackendState }>('/api/cosmetic', {
+    method: 'POST',
+    body: JSON.stringify({ kind, id }),
+  });
+  return res.state;
+}
+
+export async function manageModInPython(
+  modId: CyberModId,
+  action: 'buy' | 'toggle'
+): Promise<BackendState> {
+  const res = await requestJson<{ ok: boolean; state: BackendState }>('/api/mod', {
+    method: 'POST',
+    body: JSON.stringify({ mod_id: modId, action }),
   });
   return res.state;
 }

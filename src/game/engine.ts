@@ -8,20 +8,31 @@ import { CyberTrenchEnvironment } from './environment';
 import {
   createAreaHazardVisuals,
   createBombMesh,
+  createCityFreighterMesh,
   createEnemyModel,
   createFragmentMesh,
+  createLaserGateVisuals,
   createPlayerShip,
+  createVoidAsteroidMesh,
+  createVoidGravityWellVisuals,
+  createWaveGeyserVisuals,
+  createWingmanEscortMesh,
   disposeObjectTree,
   type AreaHazardVisuals,
   type EnemyRig,
+  type LaserGateVisuals,
   type PlayerShipRig,
+  type WaveGeyserVisuals,
 } from './models';
 import {
   ARENA_THEMES,
+  JET_SKINS,
   JETS,
   LEVELS,
+  TRAIL_COLORS,
   type ArenaThemeId,
   type BombKind,
+  type CyberModId,
   type EnemyBoltPattern,
   type EnemyKind,
   type FragmentKind,
@@ -29,8 +40,10 @@ import {
   type GamePhase,
   type HudSnapshot,
   type JetId,
+  type JetSkinId,
   type PilotProfile,
   type RadarBlip,
+  type TrailColorId,
   type WeaponPattern,
 } from './types';
 import type { TutorialStepId } from './tutorial';
@@ -155,6 +168,60 @@ interface FragmentActor {
   age: number;
 }
 
+type EnvHazard =
+  | {
+      kind: 'laser_gate';
+      visuals: LaserGateVisuals;
+      z: number;
+      rotAngle: number;
+      rotSpeed: number;
+      hitCooldown: number;
+    }
+  | {
+      kind: 'city_freighter';
+      mesh: THREE.Group;
+      x: number;
+      y: number;
+      z: number;
+      vx: number;
+      hp: number;
+      radius: number;
+    }
+  | {
+      kind: 'wave_geyser';
+      visuals: WaveGeyserVisuals;
+      x: number;
+      radius: number;
+      warningTimer: number;
+      warningDuration: number;
+      activeTimer: number;
+      hasStruck: boolean;
+    }
+  | {
+      kind: 'void_asteroid';
+      mesh: THREE.Group;
+      x: number;
+      y: number;
+      z: number;
+      vx: number;
+      vy: number;
+      vz: number;
+      hp: number;
+      radius: number;
+      rotX: number;
+      rotY: number;
+    }
+  | {
+      kind: 'void_gravity';
+      mesh: THREE.Group;
+      x: number;
+      y: number;
+      z: number;
+      vz: number;
+      radius: number;
+      hitCooldown: number;
+    };
+
 interface Particle {
   active: boolean;
   x: number;
@@ -222,9 +289,12 @@ export class SpaceShooterEngine {
   private enemyBombs: EnemyBomb[] = [];
   private enemies: EnemyActor[] = [];
   private areaHazards: AreaHazard[] = [];
+  private envHazards: EnvHazard[] = [];
   private fragments: FragmentActor[] = [];
   private particles: Particle[] = [];
   private particleMesh: THREE.InstancedMesh;
+  private wingmanLeftMesh: THREE.Group | null = null;
+  private wingmanRightMesh: THREE.Group | null = null;
 
   // Loop state
   private frameId = 0;
@@ -236,6 +306,9 @@ export class SpaceShooterEngine {
   // Game progression state (30 Levels, boss at end of every level)
   private phase: GamePhase = 'title';
   private jetId: JetId = 'vanguard';
+  private skinId: JetSkinId = 'factory';
+  private trailId: TrailColorId = 'jet_default';
+  private equippedMods: CyberModId[] = [];
   private sectorMode: ArenaThemeId = 'emerald_trench';
   private score = 0;
   private highScore = 0;
@@ -253,6 +326,8 @@ export class SpaceShooterEngine {
   private shotsHit = 0;
   private spawnCooldown = 0;
   private fragmentDropTimer = 7.5;
+  private fragmentAmbientCount = 0;
+  private envHazardTimer = 4.2;
   private nextEnemyId = 1;
 
   // Player ship kinematics & combat stats
@@ -286,6 +361,11 @@ export class SpaceShooterEngine {
   private dataVirusTimer = 0;
   private shogunDroneTimer = 0;
   private kitsuneFoxfireTimer = 0;
+  private podTimer = 0;
+  private wingmanTimer = 0;
+  private wingmanFireCooldown = 0;
+  private wingmanLeftBlockCd = 0;
+  private wingmanRightBlockCd = 0;
   private specialTrailAccum = 0;
   private invulnTimer = 0;
   private playerHitFlash = 0;
@@ -696,19 +776,97 @@ export class SpaceShooterEngine {
     this.emitHud();
   }
 
+  private hasMod(id: CyberModId): boolean {
+    return this.equippedMods.includes(id);
+  }
+
+  private getAccentHex(): number {
+    return JET_SKINS[this.skinId]?.accentHex ?? JETS[this.jetId].accentHex;
+  }
+
+  private getTrailHex(): number {
+    return TRAIL_COLORS[this.trailId]?.hex ?? this.getAccentHex();
+  }
+
+  private getAbilityCooldownMult(): number {
+    return this.hasMod('afterburner_capacitor') ? 0.75 : 1.0;
+  }
+
+  private getDurationMult(): number {
+    return this.hasMod('extended_overdrive') ? 1.4 : 1.0;
+  }
+
   public setSelectedJet(jetId: JetId): void {
-    if (this.jetId === jetId) return;
+    this.setLoadout(jetId, this.skinId, this.trailId, this.equippedMods);
+  }
+
+  public setLoadout(
+    jetId: JetId,
+    skinId: JetSkinId = 'factory',
+    trailId: TrailColorId = 'jet_default',
+    equippedMods: CyberModId[] = []
+  ): void {
+    const normalizedMods = equippedMods.slice(0, 2);
+    const visualChanged =
+      this.jetId !== jetId || this.skinId !== skinId || this.trailId !== trailId;
+    const modsChanged =
+      normalizedMods.length !== this.equippedMods.length ||
+      normalizedMods.some((m, idx) => this.equippedMods[idx] !== m);
+
     this.jetId = jetId;
-    this.rebuildPlayerShip();
-    this.emitHud();
+    this.skinId = skinId;
+    this.trailId = trailId;
+    this.equippedMods = normalizedMods;
+
+    if (visualChanged) {
+      this.rebuildPlayerShip();
+      this.rebuildWingmanMeshes();
+    }
+    if (visualChanged || modsChanged) {
+      this.emitHud();
+    }
   }
 
   private rebuildPlayerShip(): void {
     const pos = this.playerRig.group.position.clone();
     this.scene.remove(this.playerRig.group);
-    this.playerRig = createPlayerShip(this.jetId);
+    disposeObjectTree(this.playerRig.group);
+    this.playerRig = createPlayerShip(this.jetId, this.skinId, this.trailId);
     this.playerRig.group.position.copy(pos);
     this.scene.add(this.playerRig.group);
+  }
+
+  private ensureWingmanMeshes(): void {
+    if (this.wingmanLeftMesh && this.wingmanRightMesh) return;
+    const accent = this.getAccentHex();
+    const trail = this.getTrailHex();
+    if (!this.wingmanLeftMesh) {
+      this.wingmanLeftMesh = createWingmanEscortMesh(accent, trail);
+      this.wingmanLeftMesh.visible = this.wingmanTimer > 0;
+      this.scene.add(this.wingmanLeftMesh);
+    }
+    if (!this.wingmanRightMesh) {
+      this.wingmanRightMesh = createWingmanEscortMesh(accent, trail);
+      this.wingmanRightMesh.visible = this.wingmanTimer > 0;
+      this.scene.add(this.wingmanRightMesh);
+    }
+  }
+
+  private rebuildWingmanMeshes(): void {
+    const wasVisible = this.wingmanTimer > 0;
+    if (this.wingmanLeftMesh) {
+      this.scene.remove(this.wingmanLeftMesh);
+      disposeObjectTree(this.wingmanLeftMesh);
+      this.wingmanLeftMesh = null;
+    }
+    if (this.wingmanRightMesh) {
+      this.scene.remove(this.wingmanRightMesh);
+      disposeObjectTree(this.wingmanRightMesh);
+      this.wingmanRightMesh = null;
+    }
+    if (wasVisible) {
+      this.ensureWingmanMeshes();
+    }
   }
 
   public getPhase(): GamePhase {
@@ -719,22 +877,27 @@ export class SpaceShooterEngine {
     this.audio.unlock();
     this.clearEntities();
 
-    const chosenJet = profile?.selected_jet || this.jetId || 'vanguard';
-    if (chosenJet !== this.jetId) {
-      this.jetId = chosenJet;
-      this.rebuildPlayerShip();
+    if (profile) {
+      this.setLoadout(
+        profile.selected_jet || this.jetId || 'vanguard',
+        profile.selected_skin || this.skinId || 'factory',
+        profile.selected_trail || this.trailId || 'jet_default',
+        profile.equipped_mods || this.equippedMods
+      );
     }
 
     const jet = JETS[this.jetId];
     const hullTier = profile?.hull_upgrade ?? 0;
     const shieldTier = profile?.shield_upgrade ?? 0;
     const laserTier = profile?.laser_upgrade ?? 0;
+    const platingBonus = this.hasMod('reactive_plating') ? 25 : 0;
+    const platingDmgMult = this.hasMod('reactive_plating') ? 1.15 : 1.0;
 
-    this.maxHealth = Math.max(60, 100 + hullTier * 25 + jet.hullBonus);
+    this.maxHealth = Math.max(60, 100 + hullTier * 25 + jet.hullBonus + platingBonus);
     this.health = this.maxHealth;
-    this.maxShield = Math.max(60, 100 + shieldTier * 25 + jet.shieldBonus);
+    this.maxShield = Math.max(60, 100 + shieldTier * 25 + jet.shieldBonus + platingBonus);
     this.shield = this.maxShield;
-    this.baseDamageMult = (1 + laserTier * 0.22) * jet.damageMult;
+    this.baseDamageMult = (1 + laserTier * 0.22) * jet.damageMult * platingDmgMult;
     this.laserLevel = laserTier >= 3 ? 2 : 1;
     this.weaponPattern = 'twin';
 
@@ -762,8 +925,15 @@ export class SpaceShooterEngine {
     this.dataVirusTimer = 0;
     this.shogunDroneTimer = 0;
     this.kitsuneFoxfireTimer = 0;
+    this.podTimer = 0;
+    this.wingmanTimer = 0;
+    this.wingmanFireCooldown = 0;
+    this.wingmanLeftBlockCd = 0;
+    this.wingmanRightBlockCd = 0;
     this.invulnTimer = 1.2;
     this.fragmentDropTimer = 7.0;
+    this.fragmentAmbientCount = 0;
+    this.envHazardTimer = 4.2;
     this.resetBossChaseState(true);
     this.phase = 'playing';
 
@@ -776,14 +946,15 @@ export class SpaceShooterEngine {
     this.clearEntities();
 
     const chosenJet = checkpoint.jetId || profile?.selected_jet || 'vanguard';
-    if (chosenJet !== this.jetId) {
-      this.jetId = chosenJet;
-      this.rebuildPlayerShip();
-    }
+    const chosenSkin = checkpoint.skinId || profile?.selected_skin || this.skinId;
+    const chosenTrail = checkpoint.trailId || profile?.selected_trail || this.trailId;
+    const chosenMods = checkpoint.equippedMods || profile?.equipped_mods || this.equippedMods;
+    this.setLoadout(chosenJet, chosenSkin, chosenTrail, chosenMods);
 
     const jet = JETS[this.jetId];
     const laserTier = profile?.laser_upgrade ?? 0;
-    this.baseDamageMult = (1 + laserTier * 0.22) * jet.damageMult;
+    const platingDmgMult = this.hasMod('reactive_plating') ? 1.15 : 1.0;
+    this.baseDamageMult = (1 + laserTier * 0.22) * jet.damageMult * platingDmgMult;
 
     this.wave = THREE.MathUtils.clamp(checkpoint.wave, 1, 30);
     this.score = checkpoint.score;
@@ -814,6 +985,12 @@ export class SpaceShooterEngine {
     this.dataVirusTimer = 0;
     this.shogunDroneTimer = 0;
     this.kitsuneFoxfireTimer = 0;
+    this.podTimer = 0;
+    this.wingmanTimer = 0;
+    this.wingmanFireCooldown = 0;
+    this.wingmanLeftBlockCd = 0;
+    this.wingmanRightBlockCd = 0;
+    this.envHazardTimer = 4.0;
     this.invulnTimer = 1.5;
     this.resetBossChaseState(true);
     this.phase = 'playing';
@@ -827,6 +1004,9 @@ export class SpaceShooterEngine {
     return {
       wave: this.wave,
       jetId: this.jetId,
+      skinId: this.skinId,
+      trailId: this.trailId,
+      equippedMods: [...this.equippedMods],
       score: this.score,
       multiplier: this.multiplier,
       maxMultiplier: this.maxMultiplier,
@@ -914,6 +1094,11 @@ export class SpaceShooterEngine {
       disposeObjectTree(h.visuals.group);
     }
     this.areaHazards = [];
+    this.clearEnvHazards();
+    this.envHazardTimer = 3.5;
+    this.wingmanTimer = 0;
+    if (this.wingmanLeftMesh) this.wingmanLeftMesh.visible = false;
+    if (this.wingmanRightMesh) this.wingmanRightMesh.visible = false;
 
     if (this.bossChasePhase !== 'none') {
       this.resetBossChaseState(false);
@@ -970,6 +1155,7 @@ export class SpaceShooterEngine {
       disposeObjectTree(h.visuals.group);
     }
     this.areaHazards = [];
+    this.clearEnvHazards();
     for (const e of this.enemies) {
       this.scene.remove(e.rig.group);
       disposeObjectTree(e.rig.group);
@@ -980,12 +1166,24 @@ export class SpaceShooterEngine {
       disposeObjectTree(f.mesh);
     }
     this.fragments = [];
+    this.wingmanTimer = 0;
+    if (this.wingmanLeftMesh) this.wingmanLeftMesh.visible = false;
+    if (this.wingmanRightMesh) this.wingmanRightMesh.visible = false;
     this.reticleGroup.visible = false;
     this.empRingMesh.visible = false;
     this.empRingTimer = 0;
     this.shieldPulseRingMesh.visible = false;
     this.shieldPulseRingTimer = 0;
     this.resetBossChaseState(true);
+  }
+
+  private clearEnvHazards(): void {
+    for (const eh of this.envHazards) {
+      const root = eh.kind === 'laser_gate' || eh.kind === 'wave_geyser' ? eh.visuals.group : eh.mesh;
+      this.scene.remove(root);
+      disposeObjectTree(root);
+    }
+    this.envHazards = [];
   }
 
   private resetBossChaseState(resetCompleted = false): void {
@@ -1013,6 +1211,8 @@ export class SpaceShooterEngine {
     this.wave = cfg.level;
     this.sectorMode = cfg.arena;
     this.environment.setTheme(cfg.arena);
+    this.clearEnvHazards();
+    this.envHazardTimer = 3.6;
     this.waveKills = 0;
     this.waveSpawnQueue = [];
     this.bossPending = true;
@@ -1287,6 +1487,10 @@ export class SpaceShooterEngine {
       }
     }
 
+    if (this.wingmanTimer > 0) this.wingmanTimer = Math.max(0, this.wingmanTimer - dt);
+    if (this.wingmanLeftBlockCd > 0) this.wingmanLeftBlockCd = Math.max(0, this.wingmanLeftBlockCd - dt);
+    if (this.wingmanRightBlockCd > 0) this.wingmanRightBlockCd = Math.max(0, this.wingmanRightBlockCd - dt);
+
     // Cyber Kitsune Foxfire Seeker Salvos (locked during boss chase phase)
     if (this.jetId === 'cyber_kitsune' && this.specialActiveTimer > 0 && !chaseActive) {
       this.kitsuneFoxfireTimer -= dt;
@@ -1323,6 +1527,46 @@ export class SpaceShooterEngine {
           1.35,
           false,
           tB ? tB.id : null
+        );
+      }
+    }
+
+    // Twin Homing Pods Cyber-Mod passive fire
+    if (this.hasMod('twin_homing_pods') && !chaseActive && this.enemies.length > 0) {
+      this.podTimer -= dt;
+      if (this.podTimer <= 0) {
+        this.podTimer = 1.35;
+        const tA = this.enemies[0];
+        const tB = this.enemies[1] ?? tA;
+        this.spawnPlayerBolt(
+          this.shipX - 1.25,
+          this.shipY + 0.35,
+          this.shipZ - 0.8,
+          -10,
+          2,
+          -112,
+          2.1 * this.baseDamageMult,
+          true,
+          false,
+          0xfbbf24,
+          0.95,
+          false,
+          tA.id
+        );
+        this.spawnPlayerBolt(
+          this.shipX + 1.25,
+          this.shipY + 0.35,
+          this.shipZ - 0.8,
+          10,
+          2,
+          -112,
+          2.1 * this.baseDamageMult,
+          true,
+          false,
+          0xfbbf24,
+          0.95,
+          false,
+          tB.id
         );
       }
     }
@@ -1447,13 +1691,16 @@ export class SpaceShooterEngine {
     if (this.playerRig.secondaryRing) {
       this.playerRig.secondaryRing.rotation.z -= dt * (isAfterburnerNow ? 7.8 : isSpecialNow ? 6.0 : 2.2);
     }
+    const accentHex = this.getAccentHex();
+    const trailHex = this.getTrailHex();
+
     if (this.playerRig.boostAura) {
       const auraMat = this.playerRig.boostAura.material as THREE.MeshBasicMaterial;
       if (isSpecialNow) {
         this.playerRig.boostAura.visible = true;
         this.playerRig.boostAura.rotation.z += dt * 3.8;
         this.playerRig.boostAura.scale.setScalar(1.0 + Math.sin(performance.now() * 0.022) * 0.08);
-        auraMat.color.setHex(jet.accentHex);
+        auraMat.color.setHex(accentHex);
         auraMat.opacity = THREE.MathUtils.damp(
           auraMat.opacity,
           0.14 + Math.sin(performance.now() * 0.03) * 0.04,
@@ -1485,7 +1732,7 @@ export class SpaceShooterEngine {
         ? 0x2dd4bf
         : this.playerHitFlash > 0 && this.shield <= 0
         ? 0xef4444
-        : jet.accentHex
+        : accentHex
     );
     shieldMat.opacity = THREE.MathUtils.damp(shieldMat.opacity, shieldTargetOpacity, 14, dt);
     this.playerRig.shieldBubble.rotation.y += dt * (shieldPulseActive ? 6.5 : 3.5);
@@ -1508,8 +1755,8 @@ export class SpaceShooterEngine {
       this.specialTrailAccum += dt;
       if (this.specialTrailAccum >= 0.045) {
         this.specialTrailAccum = 0;
-        this.spawnTrailParticle(this.shipX - 0.45, this.shipY + 0.08, this.shipZ + 1.9, 0, 0, 20, jet.accentHex, 0.72);
-        this.spawnTrailParticle(this.shipX + 0.45, this.shipY + 0.08, this.shipZ + 1.9, 0, 0, 20, jet.accentHex, 0.72);
+        this.spawnTrailParticle(this.shipX - 0.45, this.shipY + 0.08, this.shipZ + 1.9, 0, 0, 20, trailHex, 0.72);
+        this.spawnTrailParticle(this.shipX + 0.45, this.shipY + 0.08, this.shipZ + 1.9, 0, 0, 20, trailHex, 0.72);
       }
     }
 
@@ -1532,8 +1779,8 @@ export class SpaceShooterEngine {
       this.afterburnerTrailAccum += dt;
       if (this.afterburnerTrailAccum >= 0.03) {
         this.afterburnerTrailAccum = 0;
-        this.spawnTrailParticle(this.shipX - 0.42, this.shipY + 0.08, this.shipZ + 2.1, 0, 0, 26, 0x38bdf8, 0.95);
-        this.spawnTrailParticle(this.shipX + 0.42, this.shipY + 0.08, this.shipZ + 2.1, 0, 0, 26, 0xfbbf24, 0.95);
+        this.spawnTrailParticle(this.shipX - 0.42, this.shipY + 0.08, this.shipZ + 2.1, 0, 0, 26, trailHex, 0.95);
+        this.spawnTrailParticle(this.shipX + 0.42, this.shipY + 0.08, this.shipZ + 2.1, 0, 0, 26, trailHex, 0.95);
         this.spawnTrailParticle(
           this.shipX + (Math.random() - 0.5) * 3.8,
           this.shipY + (Math.random() - 0.5) * 1.4,
@@ -1541,7 +1788,7 @@ export class SpaceShooterEngine {
           0,
           0,
           34,
-          0x67e8f9,
+          trailHex,
           0.6
         );
       }
@@ -1554,6 +1801,58 @@ export class SpaceShooterEngine {
         this.playerRig.rightAfterburnerTrail.visible = false;
         this.playerRig.ramProw.visible = false;
       }
+    }
+
+    // Holographic Wingman Escorts positioning & synchronized twin fire
+    if (this.wingmanTimer > 0) {
+      this.ensureWingmanMeshes();
+      const hover = Math.sin(performance.now() * 0.008) * 0.18;
+      const wingRoll = this.playerRig.group.rotation.z * 0.85;
+      if (this.wingmanLeftMesh) {
+        this.wingmanLeftMesh.visible = true;
+        this.wingmanLeftMesh.position.set(this.shipX - 3.2, this.shipY + 0.28 + hover, this.shipZ + 0.45);
+        this.wingmanLeftMesh.rotation.z = wingRoll;
+      }
+      if (this.wingmanRightMesh) {
+        this.wingmanRightMesh.visible = true;
+        this.wingmanRightMesh.position.set(this.shipX + 3.2, this.shipY + 0.28 - hover, this.shipZ + 0.45);
+        this.wingmanRightMesh.rotation.z = wingRoll;
+      }
+      if (!chaseActive) {
+        this.wingmanFireCooldown -= dt;
+        if (this.wingmanFireCooldown <= 0) {
+          this.wingmanFireCooldown = 0.26;
+          this.spawnPlayerBolt(
+            this.shipX - 3.2,
+            this.shipY + 0.28 + hover,
+            this.shipZ - 0.8,
+            0,
+            0,
+            -128,
+            1.45 * this.baseDamageMult,
+            false,
+            false,
+            trailHex,
+            0.95
+          );
+          this.spawnPlayerBolt(
+            this.shipX + 3.2,
+            this.shipY + 0.28 - hover,
+            this.shipZ - 0.8,
+            0,
+            0,
+            -128,
+            1.45 * this.baseDamageMult,
+            false,
+            false,
+            trailHex,
+            0.95
+          );
+        }
+      }
+    } else {
+      if (this.wingmanLeftMesh) this.wingmanLeftMesh.visible = false;
+      if (this.wingmanRightMesh) this.wingmanRightMesh.visible = false;
     }
 
     // 2. ALWAYS AUTO-SHOOT Weapons (disabled during cinematic boss chase phase)
@@ -1612,12 +1911,16 @@ export class SpaceShooterEngine {
       this.callbacks.onWaveCleared(this.exportCheckpoint());
     }
 
-    // Periodic ambient Weapon Fragment spawn so player regularly gets fragment upgrades
+    // Periodic ambient Weapon / Wingman Fragment spawn
     this.fragmentDropTimer -= dt;
     if (this.fragmentDropTimer <= 0) {
       this.fragmentDropTimer = 8.5;
+      this.fragmentAmbientCount++;
       const weaponKinds: FragmentKind[] = ['spread', 'stream', 'plasma', 'seeker'];
-      const picked = weaponKinds[Math.floor(Math.random() * weaponKinds.length)];
+      const picked: FragmentKind =
+        this.fragmentAmbientCount % 3 === 0 || Math.random() < 0.14
+          ? 'wingman'
+          : weaponKinds[Math.floor(Math.random() * weaponKinds.length)];
       this.spawnFragment(
         THREE.MathUtils.randFloat(-this.boundsX * 0.75, this.boundsX * 0.75),
         THREE.MathUtils.randFloat(-2.5, 3.2),
@@ -1626,11 +1929,12 @@ export class SpaceShooterEngine {
       );
     }
 
-    // 4. Advance Boss Chase Phase & Update Enemies, Bombs, Projectiles, Area Hazards & Fragments
+    // 4. Advance Boss Chase Phase & Update Enemies, Bombs, Projectiles, Hazards & Fragments
     this.updateBossChasePhase(dt);
     this.updateEnemies(enemyDt, dt);
     this.updateEnemyBombs(enemyDt);
     this.updateAreaHazards(enemyDt);
+    this.updateEnvHazards(dt, enemyDt, scrollSpeed, chaseActive);
     this.updatePlayerBolts(dt);
     this.updateEnemyBolts(enemyDt);
     this.updateFragments(dt);
@@ -1671,18 +1975,18 @@ export class SpaceShooterEngine {
   }
 
   private activateAfterburner(): void {
-    this.afterburnerCooldown = AFTERBURNER_COOLDOWN;
+    this.afterburnerCooldown = AFTERBURNER_COOLDOWN * this.getAbilityCooldownMult();
     this.afterburnerActiveTimer = AFTERBURNER_DURATION;
     this.invulnTimer = Math.max(this.invulnTimer, 0.45);
     this.audio.playAfterburner();
     this.showBanner('AFTERBURNER ENGAGED · RAM SPEED 5s', 1.8);
-    this.spawnExplosion(this.shipX, this.shipY, this.shipZ + 1.4, 20, 0x38bdf8, 16);
+    this.spawnExplosion(this.shipX, this.shipY, this.shipZ + 1.4, 20, this.getTrailHex(), 16);
     this.spawnExplosion(this.shipX, this.shipY, this.shipZ + 1.4, 12, 0xfbbf24, 13);
     this.cameraShake = Math.max(this.cameraShake, 0.28);
   }
 
   private activateMissileBarrage(): void {
-    this.missileCooldown = MISSILE_COOLDOWN;
+    this.missileCooldown = MISSILE_COOLDOWN * this.getAbilityCooldownMult();
     this.audio.playMissileBarrage();
     this.showBanner('HOMING MISSILE BARRAGE', 1.5);
 
@@ -1711,7 +2015,7 @@ export class SpaceShooterEngine {
   }
 
   private activateShieldPulse(): void {
-    this.shieldPulseCooldown = SHIELD_PULSE_COOLDOWN;
+    this.shieldPulseCooldown = SHIELD_PULSE_COOLDOWN * this.getAbilityCooldownMult();
     this.shieldPulseActiveTimer = SHIELD_PULSE_DURATION;
     this.invulnTimer = Math.max(this.invulnTimer, SHIELD_PULSE_DURATION);
     this.shield = Math.min(this.maxShield, this.shield + 30);
@@ -1775,18 +2079,20 @@ export class SpaceShooterEngine {
 
   private activateSpecialAbility(): void {
     const jet = JETS[this.jetId];
+    const durMult = this.getDurationMult();
+    const specialDur = jet.specialDuration * durMult;
     this.specialCooldown = jet.specialCooldown;
-    this.specialActiveTimer = jet.specialDuration;
+    this.specialActiveTimer = specialDur;
     this.audio.playSpecialAbility(this.jetId);
     this.showBanner(`${jet.specialName} ACTIVATED`, 1.8);
-    this.spawnExplosion(this.shipX, this.shipY, this.shipZ + 0.5, 14, jet.accentHex, 12);
+    this.spawnExplosion(this.shipX, this.shipY, this.shipZ + 0.5, 14, this.getAccentHex(), 12);
 
     if (this.jetId === 'vanguard') {
       this.shield = Math.min(this.maxShield, this.shield + 20);
       this.cameraShake = Math.max(this.cameraShake, 0.25);
     } else if (this.jetId === 'phantom') {
-      // EMP Ghost Cloak: clear all enemy bolts & bombs, damage hostiles, grant 3s invulnerability
-      this.invulnTimer = Math.max(this.invulnTimer, jet.specialDuration);
+      // EMP Ghost Cloak: clear all enemy bolts & bombs, damage hostiles, grant invulnerability
+      this.invulnTimer = Math.max(this.invulnTimer, specialDur);
       this.empRingMesh.position.set(this.shipX, this.shipY, this.shipZ - 1);
       this.empRingMesh.scale.setScalar(1);
       (this.empRingMesh.material as THREE.MeshBasicMaterial).color.setHex(0x38bdf8);
@@ -1834,11 +2140,11 @@ export class SpaceShooterEngine {
       }
       this.cameraShake = Math.max(this.cameraShake, 0.32);
     } else if (this.jetId === 'chrono') {
-      this.invulnTimer = Math.max(this.invulnTimer, jet.specialDuration);
+      this.invulnTimer = Math.max(this.invulnTimer, specialDur);
       this.shield = Math.min(this.maxShield, this.shield + 50);
     } else if (this.jetId === 'cyber_kitsune') {
-      // 8 piercing pink cyber-katana slashes + 3s phase invulnerability + foxfire seekers
-      this.invulnTimer = Math.max(this.invulnTimer, jet.specialDuration);
+      // 8 piercing pink cyber-katana slashes + phase invulnerability + foxfire seekers
+      this.invulnTimer = Math.max(this.invulnTimer, specialDur);
       this.kitsuneFoxfireTimer = 0;
       for (let k = 0; k < 8; k++) {
         const spread = ((k - 3.5) / 3.5) * 26;
@@ -1861,7 +2167,7 @@ export class SpaceShooterEngine {
       this.cameraShake = Math.max(this.cameraShake, 0.28);
     } else if (this.jetId === 'netrunner') {
       // Data Siphon Swarm: freezes enemies, clears enemy bolts & bombs, deals shock damage & siphons shield
-      this.dataVirusTimer = jet.specialDuration;
+      this.dataVirusTimer = specialDur;
       this.empRingMesh.position.set(this.shipX, this.shipY, this.shipZ - 1);
       this.empRingMesh.scale.setScalar(1);
       (this.empRingMesh.material as THREE.MeshBasicMaterial).color.setHex(0x22d3ee);
@@ -1892,7 +2198,7 @@ export class SpaceShooterEngine {
       this.cameraShake = Math.max(this.cameraShake, 0.3);
     } else if (this.jetId === 'shogun_mk9') {
       this.shield = Math.min(this.maxShield, this.shield + 40);
-      this.invulnTimer = Math.max(this.invulnTimer, 2.0);
+      this.invulnTimer = Math.max(this.invulnTimer, 2.0 * durMult);
       this.shogunDroneTimer = 0;
       this.cameraShake = Math.max(this.cameraShake, 0.26);
     }
@@ -2837,6 +3143,307 @@ export class SpaceShooterEngine {
     }
   }
 
+  private spawnModeEnvHazard(): void {
+    const mode = ARENA_THEMES[this.sectorMode].structureMode;
+    const scoreWaveFactor = this.wave * 0.4;
+
+    if (mode === 'structure') {
+      const visuals = createLaserGateVisuals();
+      const startAngle = Math.random() * Math.PI;
+      visuals.rotor.rotation.z = startAngle;
+      visuals.group.position.set(0, 0, -125);
+      this.scene.add(visuals.group);
+      this.envHazards.push({
+        kind: 'laser_gate',
+        visuals,
+        z: -125,
+        rotAngle: startAngle,
+        rotSpeed: (Math.random() < 0.5 ? 1 : -1) * (0.78 + Math.min(0.45, this.wave * 0.015)),
+        hitCooldown: 0,
+      });
+    } else if (mode === 'city') {
+      const fromLeft = Math.random() < 0.5;
+      const sx = fromLeft ? -16.5 : 16.5;
+      const sy = THREE.MathUtils.randFloat(-2.8, 3.6);
+      const mesh = createCityFreighterMesh();
+      mesh.position.set(sx, sy, -118);
+      if (!fromLeft) mesh.rotation.y = Math.PI;
+      this.scene.add(mesh);
+      this.envHazards.push({
+        kind: 'city_freighter',
+        mesh,
+        x: sx,
+        y: sy,
+        z: -118,
+        vx: (fromLeft ? 1 : -1) * THREE.MathUtils.randFloat(6.2, 9.4),
+        hp: 7 + scoreWaveFactor,
+        radius: 2.6,
+      });
+    } else if (mode === 'waves') {
+      const radius = 3.2;
+      const gx = THREE.MathUtils.clamp(
+        this.shipX + THREE.MathUtils.randFloat(-4.5, 4.5),
+        -this.boundsX + 1.5,
+        this.boundsX - 1.5
+      );
+      const visuals = createWaveGeyserVisuals(radius);
+      visuals.group.position.set(gx, 0, 0);
+      this.scene.add(visuals.group);
+      this.envHazards.push({
+        kind: 'wave_geyser',
+        visuals,
+        x: gx,
+        radius,
+        warningTimer: 1.25,
+        warningDuration: 1.25,
+        activeTimer: 0.65,
+        hasStruck: false,
+      });
+      this.audio.playEnemyWarning();
+    } else {
+      // 'void': alternate drifting shootable crystal asteroids and pulsing gravity wells
+      if (Math.random() < 0.62) {
+        const mesh = createVoidAsteroidMesh();
+        const ax = THREE.MathUtils.randFloat(-this.boundsX * 0.85, this.boundsX * 0.85);
+        const ay = THREE.MathUtils.randFloat(-3.2, 4.0);
+        mesh.position.set(ax, ay, -120);
+        this.scene.add(mesh);
+        this.envHazards.push({
+          kind: 'void_asteroid',
+          mesh,
+          x: ax,
+          y: ay,
+          z: -120,
+          vx: THREE.MathUtils.randFloat(-2.2, 2.2),
+          vy: THREE.MathUtils.randFloat(-1.4, 1.4),
+          vz: 24 + this.wave * 0.45,
+          hp: 5.5 + scoreWaveFactor * 0.7,
+          radius: 1.95,
+          rotX: THREE.MathUtils.randFloat(0.8, 2.0),
+          rotY: THREE.MathUtils.randFloat(0.8, 2.0),
+        });
+      } else {
+        const mesh = createVoidGravityWellVisuals();
+        const gx = THREE.MathUtils.randFloat(-this.boundsX * 0.65, this.boundsX * 0.65);
+        const gy = THREE.MathUtils.randFloat(-2.2, 3.0);
+        mesh.position.set(gx, gy, -110);
+        this.scene.add(mesh);
+        this.envHazards.push({
+          kind: 'void_gravity',
+          mesh,
+          x: gx,
+          y: gy,
+          z: -110,
+          vz: 18 + this.wave * 0.35,
+          radius: 9.5,
+          hitCooldown: 0,
+        });
+      }
+    }
+  }
+
+  private updateEnvHazards(dt: number, enemyDt: number, scrollSpeed: number, chaseActive: boolean): void {
+    if (!chaseActive) {
+      this.envHazardTimer -= dt;
+      if (this.envHazardTimer <= 0) {
+        this.envHazardTimer = Math.max(4.4, 7.4 - this.wave * 0.08);
+        this.spawnModeEnvHazard();
+      }
+    }
+
+    const waveDmg = Math.floor((this.wave - 1) * 0.55);
+    const immune = this.invulnTimer > 0 || this.afterburnerActiveTimer > 0 || this.shieldPulseActiveTimer > 0;
+
+    for (let i = this.envHazards.length - 1; i >= 0; i--) {
+      const h = this.envHazards[i];
+
+      if (h.kind === 'laser_gate') {
+        if (h.hitCooldown > 0) h.hitCooldown -= dt;
+        h.z += scrollSpeed * 0.72 * dt;
+        h.rotAngle += h.rotSpeed * enemyDt;
+        h.visuals.group.position.z = h.z;
+        h.visuals.rotor.rotation.z = h.rotAngle;
+
+        if (Math.abs(h.z - this.shipZ) < 1.35 && h.hitCooldown <= 0) {
+          const distCenter = Math.hypot(this.shipX, this.shipY);
+          // Blades stretch along local X of rotor, safe hole at center r < 3.55
+          if (distCenter >= 3.55) {
+            const cosA = Math.cos(h.rotAngle);
+            const sinA = Math.sin(h.rotAngle);
+            // Perpendicular distance to rotated blade line (local Y = -x*sinA + y*cosA)
+            const perpDist = Math.abs(-this.shipX * sinA + this.shipY * cosA);
+            if (perpDist < 0.85) {
+              h.hitCooldown = 0.6;
+              if (!immune) {
+                this.damagePlayer(26 + waveDmg, {
+                  isHeavy: true,
+                  invulnDuration: 0.45,
+                  sourceX: 0,
+                  sourceY: 0,
+                });
+              }
+            }
+          }
+        }
+
+        if (h.z > this.shipZ + 12) {
+          this.scene.remove(h.visuals.group);
+          disposeObjectTree(h.visuals.group);
+          this.envHazards.splice(i, 1);
+        }
+      } else if (h.kind === 'city_freighter') {
+        h.x += h.vx * enemyDt;
+        h.z += scrollSpeed * 0.68 * dt;
+        h.mesh.position.set(h.x, h.y, h.z);
+
+        if (Math.abs(h.z - this.shipZ) < 2.2) {
+          const dx = this.shipX - h.x;
+          const dy = this.shipY - h.y;
+          if (dx * dx + dy * dy <= (h.radius + 1.0) * (h.radius + 1.0)) {
+            this.spawnExplosion(h.x, h.y, h.z, 20, 0xf43f5e, 14);
+            this.scene.remove(h.mesh);
+            disposeObjectTree(h.mesh);
+            this.envHazards.splice(i, 1);
+            if (this.afterburnerActiveTimer > 0) {
+              this.score += 220 * this.multiplier;
+              this.audio.playExplosion('small');
+            } else if (!immune) {
+              this.damagePlayer(28 + waveDmg, {
+                isHeavy: true,
+                invulnDuration: 0.45,
+                sourceX: h.x,
+                sourceY: h.y,
+              });
+            }
+            continue;
+          }
+        }
+
+        if (h.z > this.shipZ + 12 || Math.abs(h.x) > 26) {
+          this.scene.remove(h.mesh);
+          disposeObjectTree(h.mesh);
+          this.envHazards.splice(i, 1);
+        }
+      } else if (h.kind === 'wave_geyser') {
+        const ringMat = h.visuals.ringMesh.material as THREE.MeshBasicMaterial;
+        const colMat = h.visuals.columnMesh.material as THREE.MeshBasicMaterial;
+        if (h.warningTimer > 0) {
+          h.warningTimer -= enemyDt;
+          const progress = 1 - Math.max(0, h.warningTimer) / h.warningDuration;
+          ringMat.opacity = 0.45 + Math.abs(Math.sin(progress * Math.PI * 5)) * 0.5;
+          h.visuals.ringMesh.scale.setScalar(0.85 + Math.sin(progress * Math.PI * 4) * 0.14);
+        } else {
+          if (!h.hasStruck) {
+            h.hasStruck = true;
+            this.audio.playAreaBeam();
+            this.spawnExplosion(h.x, -4.5, this.shipZ, 20, 0x38bdf8, 15);
+            if (!immune && Math.abs(this.shipX - h.x) <= h.radius && this.shipY < 4.5) {
+              this.damagePlayer(30 + waveDmg, {
+                isHeavy: true,
+                invulnDuration: 0.45,
+                sourceX: h.x,
+                sourceY: -6,
+              });
+            }
+          }
+          h.activeTimer -= dt;
+          const t = 1 - Math.max(0, h.activeTimer) / 0.65;
+          const burstScale = Math.sin(Math.min(1, t * 2) * Math.PI * 0.5) * (1 - t * 0.3);
+          h.visuals.columnMesh.scale.y = Math.max(0.05, burstScale);
+          colMat.opacity = (1 - t) * 0.78;
+          ringMat.opacity = (1 - t) * 0.7;
+
+          if (h.activeTimer <= 0) {
+            this.scene.remove(h.visuals.group);
+            disposeObjectTree(h.visuals.group);
+            this.envHazards.splice(i, 1);
+          }
+        }
+      } else if (h.kind === 'void_asteroid') {
+        h.x += h.vx * enemyDt;
+        h.y += h.vy * enemyDt;
+        h.z += h.vz * enemyDt;
+        h.mesh.position.set(h.x, h.y, h.z);
+        h.mesh.rotation.x += h.rotX * dt;
+        h.mesh.rotation.y += h.rotY * dt;
+
+        if (Math.abs(h.z - this.shipZ) < 2.2) {
+          const dx = this.shipX - h.x;
+          const dy = this.shipY - h.y;
+          if (dx * dx + dy * dy <= (h.radius + 1.0) * (h.radius + 1.0)) {
+            this.spawnExplosion(h.x, h.y, h.z, 20, 0xe879f9, 14);
+            this.scene.remove(h.mesh);
+            disposeObjectTree(h.mesh);
+            this.envHazards.splice(i, 1);
+            if (this.afterburnerActiveTimer > 0) {
+              this.score += 180 * this.multiplier;
+              this.audio.playExplosion('small');
+            } else if (!immune) {
+              this.damagePlayer(26 + waveDmg, {
+                isHeavy: true,
+                invulnDuration: 0.45,
+                sourceX: h.x,
+                sourceY: h.y,
+              });
+            }
+            continue;
+          }
+        }
+
+        if (h.z > this.shipZ + 12) {
+          this.scene.remove(h.mesh);
+          disposeObjectTree(h.mesh);
+          this.envHazards.splice(i, 1);
+        }
+      } else {
+        // void_gravity
+        if (h.hitCooldown > 0) h.hitCooldown -= dt;
+        h.z += h.vz * enemyDt;
+        h.mesh.position.set(h.x, h.y, h.z);
+        h.mesh.rotation.z += dt * 1.9;
+        const pulse = 0.92 + Math.sin(performance.now() * 0.008) * 0.12;
+        h.mesh.scale.setScalar(pulse);
+
+        // Gentle gravitational pull toward the anomaly as it sweeps past
+        if (Math.abs(h.z - this.shipZ) < 16) {
+          const dx = h.x - this.shipX;
+          const dy = h.y - this.shipY;
+          const dist = Math.hypot(dx, dy);
+          if (dist > 0.25 && dist < h.radius) {
+            const strength = (1 - dist / h.radius) * 11.5;
+            this.shipX = THREE.MathUtils.clamp(
+              this.shipX + (dx / dist) * strength * dt,
+              -this.boundsX,
+              this.boundsX
+            );
+            this.shipY = THREE.MathUtils.clamp(
+              this.shipY + (dy / dist) * strength * dt,
+              this.minY,
+              this.maxY
+            );
+          }
+          if (Math.abs(h.z - this.shipZ) < 1.9 && dist < 1.65 && h.hitCooldown <= 0) {
+            h.hitCooldown = 0.65;
+            if (!immune) {
+              this.damagePlayer(24 + waveDmg, {
+                isHeavy: false,
+                invulnDuration: 0.4,
+                sourceX: h.x,
+                sourceY: h.y,
+              });
+            }
+          }
+        }
+
+        if (h.z > this.shipZ + 12) {
+          this.scene.remove(h.mesh);
+          disposeObjectTree(h.mesh);
+          this.envHazards.splice(i, 1);
+        }
+      }
+    }
+  }
+
   private launchSpecialBomb(e: EnemyActor): void {
     const kinds: BombKind[] =
       e.kind === 'dreadnought'
@@ -2929,6 +3536,36 @@ export class SpaceShooterEngine {
         disposeObjectTree(bomb.mesh);
         this.enemyBombs.splice(i, 1);
         continue;
+      }
+
+      // Wingman Escort intercept check against stray bombs
+      if (this.wingmanTimer > 0 && Math.abs(bomb.z - (this.shipZ + 0.45)) < 3.0) {
+        let intercepted = false;
+        if (this.wingmanLeftBlockCd <= 0) {
+          const lx = this.shipX - 3.2;
+          const ly = this.shipY + 0.28;
+          if ((bomb.x - lx) ** 2 + (bomb.y - ly) ** 2 <= 3.5 * 3.5) {
+            this.wingmanLeftBlockCd = 2.5;
+            intercepted = true;
+          }
+        }
+        if (!intercepted && this.wingmanRightBlockCd <= 0) {
+          const rx = this.shipX + 3.2;
+          const ry = this.shipY + 0.28;
+          if ((bomb.x - rx) ** 2 + (bomb.y - ry) ** 2 <= 3.5 * 3.5) {
+            this.wingmanRightBlockCd = 2.5;
+            intercepted = true;
+          }
+        }
+        if (intercepted) {
+          this.score += 180 * this.multiplier;
+          this.spawnExplosion(bomb.x, bomb.y, bomb.z, 14, 0x38bdf8, 12);
+          this.audio.playExplosion('small');
+          this.scene.remove(bomb.mesh);
+          disposeObjectTree(bomb.mesh);
+          this.enemyBombs.splice(i, 1);
+          continue;
+        }
       }
 
       if (Math.abs(bomb.z - this.shipZ) < 2.45) {
@@ -3060,6 +3697,37 @@ export class SpaceShooterEngine {
       }
       if (hitSomething) continue;
 
+      // Check collision against shootable Void Asteroids & City Freighters
+      for (let h = this.envHazards.length - 1; h >= 0; h--) {
+        const eh = this.envHazards[h];
+        if (eh.kind !== 'void_asteroid' && eh.kind !== 'city_freighter') continue;
+        const dx = b.x - eh.x;
+        const dy = b.y - eh.y;
+        const dz = b.z - eh.z;
+        const hitR = eh.radius + 0.6;
+        if (dx * dx + dy * dy + dz * dz <= hitR * hitR) {
+          b.active = false;
+          b.mesh.visible = false;
+          this.shotsHit++;
+          eh.hp -= b.damage;
+          this.spawnExplosion(b.x, b.y, b.z, 5, eh.kind === 'city_freighter' ? 0x22d3ee : 0xe879f9, 8);
+          if (eh.hp <= 0) {
+            const bonus = this.hasMod('fragment_magnet') ? 1.25 : 1;
+            this.score += Math.round((eh.kind === 'city_freighter' ? 240 : 180) * this.multiplier * bonus);
+            this.spawnExplosion(eh.x, eh.y, eh.z, 18, eh.kind === 'city_freighter' ? 0xf43f5e : 0xe879f9, 13);
+            this.audio.playExplosion('small');
+            this.scene.remove(eh.mesh);
+            disposeObjectTree(eh.mesh);
+            this.envHazards.splice(h, 1);
+          } else {
+            this.audio.playHitConfirm();
+          }
+          hitSomething = true;
+          break;
+        }
+      }
+      if (hitSomething) continue;
+
       // Check collision against active enemies
       for (let i = this.enemies.length - 1; i >= 0; i--) {
         const e = this.enemies[i];
@@ -3111,11 +3779,16 @@ export class SpaceShooterEngine {
     this.multiplier = Math.min(5, this.multiplier + 1);
     this.maxMultiplier = Math.max(this.maxMultiplier, this.multiplier);
 
-    const points = e.scoreValue * this.multiplier;
+    const scoreBonus = this.hasMod('fragment_magnet') ? 1.25 : 1.0;
+    const points = Math.round(e.scoreValue * this.multiplier * scoreBonus);
     this.score += points;
     if (this.score > this.highScore) this.highScore = this.score;
 
     const isBoss = e.kind === 'dreadnought';
+    if (this.hasMod('shield_siphon')) {
+      this.shield = Math.min(this.maxShield, this.shield + (isBoss ? 12 : 3));
+    }
+
     const isHeavy = e.kind === 'gunship' || e.kind === 'bomber';
     this.spawnExplosion(e.x, e.y, e.z, isBoss ? 52 : isHeavy ? 24 : 15, 0xff7b1c, isBoss ? 24 : 13);
     this.spawnExplosion(e.x, e.y, e.z, isBoss ? 26 : 8, 0xfef08a, 10);
@@ -3126,11 +3799,13 @@ export class SpaceShooterEngine {
       this.hitstopTimer = isBoss ? 0.065 : 0.03;
     }
 
-    // Drop Crystal Weapon / Support Fragment
+    // Drop Crystal Weapon / Support / Wingman Fragment
     const dropRoll = Math.random();
     if (isBoss || dropRoll < (isHeavy ? 0.52 : 0.24)) {
+      const wingmanChance = isBoss ? 0.28 : 0.14;
       const pool: FragmentKind[] = ['spread', 'stream', 'plasma', 'seeker', 'shield', 'hull'];
-      const kind = pool[Math.floor(Math.random() * pool.length)];
+      const kind: FragmentKind =
+        Math.random() < wingmanChance ? 'wingman' : pool[Math.floor(Math.random() * pool.length)];
       this.spawnFragment(e.x, e.y, e.z, kind);
     }
   }
@@ -3283,18 +3958,23 @@ export class SpaceShooterEngine {
   }
 
   private updateFragments(dt: number): void {
+    const hasMagnet = this.hasMod('fragment_magnet');
+    const magnetDistSq = hasMagnet ? 120 : 36;
+    const magnetZRange = hasMagnet ? 36 : 22;
+    const magnetPull = hasMagnet ? 4.2 : 2.4;
+
     for (let i = this.fragments.length - 1; i >= 0; i--) {
       const f = this.fragments[i];
       f.age += dt;
       f.z += 21 * dt;
 
-      // Gentle magnetic pull when near the player's ship
+      // Magnetic pull when near the player's ship
       const dx = this.shipX - f.x;
       const dy = this.shipY - f.y;
       const distSq = dx * dx + dy * dy;
-      if (distSq < 36 && f.z > this.shipZ - 22) {
-        f.x += dx * dt * 2.4;
-        f.y += dy * dt * 2.4;
+      if (distSq < magnetDistSq && f.z > this.shipZ - magnetZRange) {
+        f.x += dx * dt * magnetPull;
+        f.y += dy * dt * magnetPull;
       }
 
       f.mesh.position.set(f.x, f.y + Math.sin(f.age * 4) * 0.25, f.z);
@@ -3319,7 +3999,18 @@ export class SpaceShooterEngine {
 
   private applyFragment(kind: FragmentKind): void {
     this.audio.playPowerUp(kind);
-    this.score += 150 * this.multiplier;
+    const bonus = this.hasMod('fragment_magnet') ? 1.25 : 1.0;
+    this.score += Math.round(150 * this.multiplier * bonus);
+
+    if (kind === 'wingman') {
+      this.wingmanTimer = 10.0 * this.getDurationMult();
+      this.wingmanFireCooldown = 0;
+      this.wingmanLeftBlockCd = 0;
+      this.wingmanRightBlockCd = 0;
+      this.ensureWingmanMeshes();
+      this.showBanner(`WINGMAN ESCORTS DEPLOYED (${Math.round(this.wingmanTimer)}s)`, 2.0);
+      return;
+    }
 
     if (kind === 'shield') {
       this.shield = Math.min(this.maxShield, this.shield + 45);
@@ -3458,6 +4149,7 @@ export class SpaceShooterEngine {
       });
     }
 
+    const cdMult = this.getAbilityCooldownMult();
     this.callbacks.onHudUpdate({
       phase: this.phase,
       jetId: this.jetId,
@@ -3484,12 +4176,12 @@ export class SpaceShooterEngine {
       specialMaxCooldown: jet.specialCooldown,
       specialActiveTimer: this.specialActiveTimer,
       afterburnerCooldown: this.afterburnerCooldown,
-      afterburnerMaxCooldown: AFTERBURNER_COOLDOWN,
+      afterburnerMaxCooldown: AFTERBURNER_COOLDOWN * cdMult,
       afterburnerActiveTimer: this.afterburnerActiveTimer,
       missileCooldown: this.missileCooldown,
-      missileMaxCooldown: MISSILE_COOLDOWN,
+      missileMaxCooldown: MISSILE_COOLDOWN * cdMult,
       shieldPulseCooldown: this.shieldPulseCooldown,
-      shieldPulseMaxCooldown: SHIELD_PULSE_COOLDOWN,
+      shieldPulseMaxCooldown: SHIELD_PULSE_COOLDOWN * cdMult,
       shieldPulseActiveTimer: this.shieldPulseActiveTimer,
       barrelRollCooldown: this.barrelRollCooldown,
       sectorMode: this.sectorMode,
@@ -3510,6 +4202,8 @@ export class SpaceShooterEngine {
           ? BOSS_CHASE_DURATION
           : 0,
       bossChaseDuration: BOSS_CHASE_DURATION,
+      wingmanTimeLeft: this.wingmanTimer,
+      equippedMods: [...this.equippedMods],
       radarBlips,
     });
   }
@@ -3528,6 +4222,20 @@ export class SpaceShooterEngine {
     window.removeEventListener('pointermove', this.onPointerMove);
     window.removeEventListener('pointerup', this.onPointerUp);
     canvas.removeEventListener('contextmenu', this.onContextMenu);
+
+    this.clearEntities();
+    if (this.wingmanLeftMesh) {
+      this.scene.remove(this.wingmanLeftMesh);
+      disposeObjectTree(this.wingmanLeftMesh);
+      this.wingmanLeftMesh = null;
+    }
+    if (this.wingmanRightMesh) {
+      this.scene.remove(this.wingmanRightMesh);
+      disposeObjectTree(this.wingmanRightMesh);
+      this.wingmanRightMesh = null;
+    }
+    this.scene.remove(this.playerRig.group);
+    disposeObjectTree(this.playerRig.group);
 
     this.audio.dispose();
     this.environment.dispose();

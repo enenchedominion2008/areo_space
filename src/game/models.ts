@@ -1,5 +1,15 @@
 import * as THREE from 'three';
-import { JETS, type BombKind, type EnemyKind, type FragmentKind, type JetId } from './types';
+import {
+  JET_SKINS,
+  JETS,
+  TRAIL_COLORS,
+  type BombKind,
+  type EnemyKind,
+  type FragmentKind,
+  type JetId,
+  type JetSkinId,
+  type TrailColorId,
+} from './types';
 
 export interface PlayerShipRig {
   group: THREE.Group;
@@ -49,9 +59,15 @@ function createCyberWingShape(span: number, length: number, sweep: number, notch
   return shape;
 }
 
-export function createPlayerShip(jetId: JetId = 'vanguard'): PlayerShipRig {
+export function createPlayerShip(
+  jetId: JetId = 'vanguard',
+  skinId: JetSkinId = 'factory',
+  trailId: TrailColorId = 'jet_default'
+): PlayerShipRig {
   const group = new THREE.Group();
   const spec = JETS[jetId];
+  const skin = JET_SKINS[skinId] ?? JET_SKINS.factory;
+  const trail = TRAIL_COLORS[trailId] ?? TRAIL_COLORS.jet_default;
 
   const hullColorMap: Record<JetId, number> = {
     vanguard: 0x28304a,
@@ -75,14 +91,21 @@ export function createPlayerShip(jetId: JetId = 'vanguard'): PlayerShipRig {
     shogun_mk9: 0x423324,
   };
 
+  const effectiveHullHex = skin.hullHex ?? hullColorMap[jetId];
+  const effectiveSecondaryHex = skin.secondaryHex ?? secondaryColorMap[jetId];
+  const effectiveTrimHex =
+    skin.trimHex ?? (jetId === 'valkyrie' || jetId === 'shogun_mk9' ? 0xd99b26 : 0x94a3b8);
+  const effectiveAccentHex = skin.accentHex ?? spec.accentHex;
+  const effectiveTrailHex = trail.hex ?? effectiveAccentHex;
+
   const hullMat = new THREE.MeshStandardMaterial({
-    color: hullColorMap[jetId],
-    metalness: jetId === 'chrono' ? 0.6 : 0.78,
-    roughness: jetId === 'chrono' ? 0.32 : 0.34,
+    color: effectiveHullHex,
+    metalness: skinId === 'arctic_chrome' ? 0.88 : jetId === 'chrono' ? 0.6 : 0.78,
+    roughness: skinId === 'carbon_stealth' ? 0.48 : jetId === 'chrono' ? 0.32 : 0.34,
   });
 
   const secondaryArmorMat = new THREE.MeshStandardMaterial({
-    color: secondaryColorMap[jetId],
+    color: effectiveSecondaryHex,
     metalness: 0.64,
     roughness: 0.42,
   });
@@ -94,7 +117,7 @@ export function createPlayerShip(jetId: JetId = 'vanguard'): PlayerShipRig {
   });
 
   const trimSteelMat = new THREE.MeshStandardMaterial({
-    color: jetId === 'valkyrie' || jetId === 'shogun_mk9' ? 0xd99b26 : 0x94a3b8,
+    color: effectiveTrimHex,
     metalness: 0.88,
     roughness: 0.22,
   });
@@ -105,21 +128,21 @@ export function createPlayerShip(jetId: JetId = 'vanguard'): PlayerShipRig {
     roughness: 0.06,
     clearcoat: 1.0,
     clearcoatRoughness: 0.04,
-    emissive: spec.accentHex,
+    emissive: effectiveAccentHex,
     emissiveIntensity: 0.18,
   });
 
   const neonAccentMat = new THREE.MeshStandardMaterial({
-    color: spec.accentHex,
-    emissive: spec.accentHex,
+    color: effectiveAccentHex,
+    emissive: effectiveAccentHex,
     emissiveIntensity: 0.72,
     roughness: 0.25,
     metalness: 0.15,
   });
 
   const cyberCyanMat = new THREE.MeshStandardMaterial({
-    color: 0x38bdf8,
-    emissive: 0x38bdf8,
+    color: effectiveTrailHex,
+    emissive: effectiveTrailHex,
     emissiveIntensity: 0.62,
     roughness: 0.25,
     metalness: 0.15,
@@ -520,7 +543,7 @@ export function createPlayerShip(jetId: JetId = 'vanguard'): PlayerShipRig {
     group.add(outerRing);
 
     const flameMat = new THREE.MeshBasicMaterial({
-      color: spec.accentHex,
+      color: effectiveTrailHex,
       transparent: true,
       opacity: 0.72,
       blending: THREE.AdditiveBlending,
@@ -538,7 +561,7 @@ export function createPlayerShip(jetId: JetId = 'vanguard'): PlayerShipRig {
     trailGeo.rotateX(Math.PI / 2);
     trailGeo.translate(0, 0, 2.5);
     const trailMat = new THREE.MeshBasicMaterial({
-      color: 0x38bdf8,
+      color: effectiveTrailHex,
       transparent: true,
       opacity: 0,
       blending: THREE.AdditiveBlending,
@@ -561,7 +584,7 @@ export function createPlayerShip(jetId: JetId = 'vanguard'): PlayerShipRig {
   const ramGeo = new THREE.ConeGeometry(2.15, 4.6, 16, 1, true);
   ramGeo.rotateX(-Math.PI / 2);
   const ramMat = new THREE.MeshBasicMaterial({
-    color: 0x38bdf8,
+    color: effectiveTrailHex,
     transparent: true,
     opacity: 0,
     wireframe: true,
@@ -577,7 +600,7 @@ export function createPlayerShip(jetId: JetId = 'vanguard'): PlayerShipRig {
   const boostGeo = new THREE.ConeGeometry(2.4, 4.4, 8, 1, true);
   boostGeo.rotateX(-Math.PI / 2);
   const boostMat = new THREE.MeshBasicMaterial({
-    color: spec.accentHex,
+    color: effectiveAccentHex,
     transparent: true,
     opacity: 0,
     wireframe: true,
@@ -593,7 +616,7 @@ export function createPlayerShip(jetId: JetId = 'vanguard'): PlayerShipRig {
   const shieldGeo = new THREE.SphereGeometry(2.5, 24, 16);
   shieldGeo.scale(1.1, 0.55, 1.25);
   const shieldMat = new THREE.MeshBasicMaterial({
-    color: spec.accentHex,
+    color: effectiveAccentHex,
     transparent: true,
     opacity: 0,
     wireframe: true,
@@ -982,15 +1005,42 @@ export function createFragmentMesh(kind: FragmentKind): THREE.Group {
       ? 0x38bdf8
       : kind === 'shield'
       ? 0x06b6d4
+      : kind === 'wingman'
+      ? 0xf59e0b
       : 0x22c55e;
 
   const shardMat = new THREE.MeshStandardMaterial({
     color,
     emissive: color,
-    emissiveIntensity: 2.4,
-    roughness: 0.15,
-    metalness: 0.3,
+    emissiveIntensity: 1.45,
+    roughness: 0.2,
+    metalness: 0.35,
   });
+
+  if (kind === 'wingman') {
+    // Distinct miniature dual-chevron holographic escort core + twin rings
+    const core = new THREE.Mesh(new THREE.ConeGeometry(0.45, 1.25, 4), shardMat);
+    core.rotation.x = -Math.PI / 2;
+    group.add(core);
+
+    const wing = new THREE.Mesh(new THREE.BoxGeometry(1.55, 0.09, 0.45), shardMat);
+    wing.position.set(0, 0, 0.15);
+    group.add(wing);
+
+    const ring1 = new THREE.Mesh(
+      new THREE.TorusGeometry(1.05, 0.06, 6, 24),
+      new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.92 })
+    );
+    group.add(ring1);
+
+    const ring2 = new THREE.Mesh(
+      new THREE.TorusGeometry(0.75, 0.05, 6, 20),
+      new THREE.MeshBasicMaterial({ color: 0xfbbf24, transparent: true, opacity: 0.9 })
+    );
+    ring2.rotation.y = Math.PI / 2;
+    group.add(ring2);
+    return group;
+  }
 
   const shard = new THREE.Mesh(new THREE.OctahedronGeometry(0.62, 0), shardMat);
   shard.scale.set(0.85, 1.35, 0.85);
@@ -1001,6 +1051,83 @@ export function createFragmentMesh(kind: FragmentKind): THREE.Group {
     new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9 })
   );
   group.add(ring);
+
+  return group;
+}
+
+export function createWingmanEscortMesh(accentHex: number, trailHex: number): THREE.Group {
+  const group = new THREE.Group();
+
+  const holoHullMat = new THREE.MeshStandardMaterial({
+    color: 0x0f172a,
+    emissive: accentHex,
+    emissiveIntensity: 0.55,
+    roughness: 0.28,
+    metalness: 0.65,
+    transparent: true,
+    opacity: 0.86,
+  });
+
+  const wingShape = createCyberWingShape(1.15, 1.45, 0.34, 0.25);
+  const wingGeo = new THREE.ExtrudeGeometry(wingShape, {
+    depth: 0.08,
+    bevelEnabled: true,
+    bevelThickness: 0.025,
+    bevelSize: 0.025,
+    bevelSegments: 1,
+  });
+  wingGeo.rotateX(Math.PI / 2);
+  wingGeo.center();
+  const wings = new THREE.Mesh(wingGeo, holoHullMat);
+  group.add(wings);
+
+  const wireEdges = new THREE.LineSegments(
+    new THREE.EdgesGeometry(wingGeo),
+    new THREE.LineBasicMaterial({ color: 0x67e8f9, transparent: true, opacity: 0.88 })
+  );
+  group.add(wireEdges);
+
+  const nose = new THREE.Mesh(
+    new THREE.ConeGeometry(0.2, 1.15, 6),
+    new THREE.MeshStandardMaterial({
+      color: 0xe2e8f0,
+      emissive: accentHex,
+      emissiveIntensity: 0.45,
+      transparent: true,
+      opacity: 0.9,
+    })
+  );
+  nose.rotation.x = -Math.PI / 2;
+  nose.position.set(0, 0.06, -0.32);
+  group.add(nose);
+
+  const flame = new THREE.Mesh(
+    new THREE.ConeGeometry(0.14, 0.9, 8, 1, true),
+    new THREE.MeshBasicMaterial({
+      color: trailHex,
+      transparent: true,
+      opacity: 0.8,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    })
+  );
+  flame.rotation.x = Math.PI / 2;
+  flame.position.set(0, 0.02, 0.9);
+  group.add(flame);
+
+  // Protective mini holo-barrier ring (signals bomb interception capability)
+  const guardRing = new THREE.Mesh(
+    new THREE.TorusGeometry(0.95, 0.035, 6, 20),
+    new THREE.MeshBasicMaterial({
+      color: 0x38bdf8,
+      transparent: true,
+      opacity: 0.45,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    })
+  );
+  guardRing.rotation.x = Math.PI / 2;
+  group.add(guardRing);
 
   return group;
 }
@@ -1061,6 +1188,198 @@ export function createAreaHazardVisuals(radius: number): AreaHazardVisuals {
   group.add(beamMesh);
 
   return { group, ringMesh, innerRingMesh, beamMesh };
+}
+
+export interface LaserGateVisuals {
+  group: THREE.Group;
+  rotor: THREE.Group;
+}
+
+export function createLaserGateVisuals(): LaserGateVisuals {
+  const group = new THREE.Group();
+
+  const frameMat = new THREE.MeshStandardMaterial({
+    color: 0x1e293b,
+    metalness: 0.78,
+    roughness: 0.28,
+  });
+  const pylonGeo = new THREE.BoxGeometry(1.1, 14, 1.1);
+  for (const sx of [-13.2, 13.2]) {
+    const pylon = new THREE.Mesh(pylonGeo, frameMat);
+    pylon.position.set(sx, 0, 0);
+    group.add(pylon);
+  }
+
+  const rotor = new THREE.Group();
+  const beamMat = new THREE.MeshBasicMaterial({
+    color: 0xff2e55,
+    transparent: true,
+    opacity: 0.92,
+  });
+  const beamGlowMat = new THREE.MeshBasicMaterial({
+    color: 0xff6b8b,
+    transparent: true,
+    opacity: 0.35,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+
+  // Two opposing laser blades leaving a generous center safe gap (r = 3.8..15.5)
+  for (const side of [-1, 1]) {
+    const blade = new THREE.Mesh(new THREE.BoxGeometry(11.6, 0.42, 0.42), beamMat);
+    blade.position.set(side * (3.7 + 5.8), 0, 0);
+    rotor.add(blade);
+
+    const glow = new THREE.Mesh(new THREE.BoxGeometry(11.6, 0.95, 0.95), beamGlowMat);
+    glow.position.copy(blade.position);
+    rotor.add(glow);
+  }
+
+  // Safe gap guide ring in glowing emerald
+  const safeRing = new THREE.Mesh(
+    new THREE.TorusGeometry(3.6, 0.12, 8, 28),
+    new THREE.MeshBasicMaterial({ color: 0x34d399, transparent: true, opacity: 0.78 })
+  );
+  rotor.add(safeRing);
+
+  group.add(rotor);
+  return { group, rotor };
+}
+
+export function createCityFreighterMesh(): THREE.Group {
+  const group = new THREE.Group();
+  const body = new THREE.Mesh(
+    new THREE.BoxGeometry(5.2, 2.1, 2.6),
+    new THREE.MeshStandardMaterial({
+      color: 0x1e1b2e,
+      metalness: 0.72,
+      roughness: 0.34,
+    })
+  );
+  group.add(body);
+
+  const wire = new THREE.LineSegments(
+    new THREE.EdgesGeometry(new THREE.BoxGeometry(5.26, 2.16, 2.66)),
+    new THREE.LineBasicMaterial({ color: 0x22d3ee, transparent: true, opacity: 0.8 })
+  );
+  group.add(wire);
+
+  // Glowing holo-billboard / hazard warning strips
+  const holoMat = new THREE.MeshBasicMaterial({ color: 0xf43f5e, transparent: true, opacity: 0.88 });
+  const frontBar = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.45, 0.15), holoMat);
+  frontBar.position.set(0, 0.45, 1.32);
+  group.add(frontBar);
+
+  const headLightMat = new THREE.MeshBasicMaterial({ color: 0xfef08a });
+  for (const sx of [-2.1, 2.1]) {
+    const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.28, 8, 8), headLightMat);
+    lamp.position.set(sx, -0.45, 1.32);
+    group.add(lamp);
+  }
+  return group;
+}
+
+export interface WaveGeyserVisuals {
+  group: THREE.Group;
+  ringMesh: THREE.Mesh;
+  columnMesh: THREE.Mesh;
+}
+
+export function createWaveGeyserVisuals(radius: number): WaveGeyserVisuals {
+  const group = new THREE.Group();
+
+  const ringMesh = new THREE.Mesh(
+    new THREE.RingGeometry(radius * 0.65, radius, 28),
+    new THREE.MeshBasicMaterial({
+      color: 0x38bdf8,
+      transparent: true,
+      opacity: 0.85,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    })
+  );
+  ringMesh.rotation.x = -Math.PI / 2;
+  ringMesh.position.y = -7.6;
+  group.add(ringMesh);
+
+  const colGeo = new THREE.CylinderGeometry(radius * 0.58, radius * 0.85, 16, 16, 1, true);
+  colGeo.translate(0, 8, 0);
+  const columnMesh = new THREE.Mesh(
+    colGeo,
+    new THREE.MeshBasicMaterial({
+      color: 0x67e8f9,
+      transparent: true,
+      opacity: 0.0,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    })
+  );
+  columnMesh.position.y = -7.8;
+  columnMesh.scale.y = 0.05;
+  group.add(columnMesh);
+
+  return { group, ringMesh, columnMesh };
+}
+
+export function createVoidAsteroidMesh(): THREE.Group {
+  const group = new THREE.Group();
+  const rock = new THREE.Mesh(
+    new THREE.DodecahedronGeometry(1.75, 0),
+    new THREE.MeshStandardMaterial({
+      color: 0x261d3a,
+      roughness: 0.68,
+      metalness: 0.35,
+      emissive: 0x581c87,
+      emissiveIntensity: 0.25,
+    })
+  );
+  group.add(rock);
+
+  const crystalMat = new THREE.MeshStandardMaterial({
+    color: 0xe879f9,
+    emissive: 0xd946ef,
+    emissiveIntensity: 0.72,
+    roughness: 0.2,
+    metalness: 0.4,
+  });
+  for (let i = 0; i < 4; i++) {
+    const spike = new THREE.Mesh(new THREE.ConeGeometry(0.36, 1.5, 5), crystalMat);
+    const a = (i / 4) * Math.PI * 2;
+    spike.position.set(Math.cos(a) * 1.15, Math.sin(a) * 1.05, 0.35);
+    spike.rotation.z = a - Math.PI / 2;
+    group.add(spike);
+  }
+  return group;
+}
+
+export function createVoidGravityWellVisuals(): THREE.Group {
+  const group = new THREE.Group();
+
+  const core = new THREE.Mesh(
+    new THREE.SphereGeometry(1.05, 16, 16),
+    new THREE.MeshBasicMaterial({ color: 0x030108 })
+  );
+  group.add(core);
+
+  const rim = new THREE.Mesh(
+    new THREE.TorusGeometry(1.45, 0.14, 8, 28),
+    new THREE.MeshBasicMaterial({ color: 0xf43f5e, transparent: true, opacity: 0.9 })
+  );
+  group.add(rim);
+
+  const outerPullRing = new THREE.Mesh(
+    new THREE.RingGeometry(4.4, 4.75, 36),
+    new THREE.MeshBasicMaterial({
+      color: 0xa855f7,
+      transparent: true,
+      opacity: 0.55,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    })
+  );
+  group.add(outerPullRing);
+
+  return group;
 }
 
 export function disposeObjectTree(root: THREE.Object3D): void {

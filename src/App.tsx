@@ -2,10 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   deleteCheckpointFromPython,
   fetchBackendState,
+  manageModInPython,
   purchaseUpgradeFromPython,
   reviveRunWithCredits,
   saveCheckpointToPython,
   selectJetInPython,
+  setCosmeticInPython,
   submitScoreToPython,
   updatePilotNameInPython,
 } from './api/saveClient';
@@ -14,7 +16,17 @@ import { GameModals } from './components/GameModals';
 import { TutorialOverlay } from './components/TutorialOverlay';
 import { SpaceShooterEngine } from './game/engine';
 import { TUTORIAL_STEPS, type TutorialStepId } from './game/tutorial';
-import type { BackendState, GameCheckpointPayload, HudSnapshot, JetId, SaveSlotRecord } from './game/types';
+import {
+  CYBER_MODS,
+  type BackendState,
+  type CyberModId,
+  type GameCheckpointPayload,
+  type HudSnapshot,
+  type JetId,
+  type JetSkinId,
+  type SaveSlotRecord,
+  type TrailColorId,
+} from './game/types';
 
 const INITIAL_HUD: HudSnapshot = {
   phase: 'title',
@@ -60,6 +72,8 @@ const INITIAL_HUD: HudSnapshot = {
   bossChaseActive: false,
   bossChaseTimeLeft: 0,
   bossChaseDuration: 11.5,
+  wingmanTimeLeft: 0,
+  equippedMods: [],
   radarBlips: [],
 };
 
@@ -123,9 +137,12 @@ export default function App() {
         backendStateRef.current = state;
         setBackendState(state);
         engineRef.current?.setHighScore(state.profile.high_score ?? 0);
-        if (state.profile.selected_jet) {
-          engineRef.current?.setSelectedJet(state.profile.selected_jet);
-        }
+        engineRef.current?.setLoadout(
+          state.profile.selected_jet || 'vanguard',
+          state.profile.selected_skin || 'factory',
+          state.profile.selected_trail || 'jet_default',
+          state.profile.equipped_mods || []
+        );
         if (healthRes?.python_version) {
           setBackendStatus(`PYTHON ${healthRes.python_version} · SQLITE`);
         }
@@ -186,6 +203,15 @@ export default function App() {
     );
 
     engineRef.current = engine;
+    const prof = backendStateRef.current?.profile;
+    if (prof) {
+      engine.setLoadout(
+        prof.selected_jet || 'vanguard',
+        prof.selected_skin || 'factory',
+        prof.selected_trail || 'jet_default',
+        prof.equipped_mods || []
+      );
+    }
     return () => {
       engine.dispose();
       engineRef.current = null;
@@ -397,7 +423,13 @@ export default function App() {
 
   const handleSelectJet = useCallback(
     async (jetId: JetId) => {
-      engineRef.current?.setSelectedJet(jetId);
+      const prof = backendStateRef.current?.profile;
+      engineRef.current?.setLoadout(
+        jetId,
+        prof?.selected_skin || 'factory',
+        prof?.selected_trail || 'jet_default',
+        prof?.equipped_mods || []
+      );
       setBusy(true);
       try {
         const state = await selectJetInPython(jetId);
@@ -406,6 +438,60 @@ export default function App() {
         showToast(`JET SELECTED: ${jetId.toUpperCase()}`);
       } catch (err) {
         showToast(err instanceof Error ? err.message : 'Jet selection failed');
+      } finally {
+        setBusy(false);
+      }
+    },
+    [showToast]
+  );
+
+  const handleSelectCosmetic = useCallback(
+    async (kind: 'skin' | 'trail', id: JetSkinId | TrailColorId) => {
+      setBusy(true);
+      try {
+        const state = await setCosmeticInPython(kind, id);
+        backendStateRef.current = state;
+        setBackendState(state);
+        engineRef.current?.setLoadout(
+          state.profile.selected_jet || 'vanguard',
+          state.profile.selected_skin || 'factory',
+          state.profile.selected_trail || 'jet_default',
+          state.profile.equipped_mods || []
+        );
+        showToast(`${kind === 'skin' ? 'LIVERY' : 'TRAIL'} UPDATED`);
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : 'Cosmetic update failed');
+      } finally {
+        setBusy(false);
+      }
+    },
+    [showToast]
+  );
+
+  const handleManageMod = useCallback(
+    async (modId: CyberModId, action: 'buy' | 'toggle') => {
+      setBusy(true);
+      try {
+        const state = await manageModInPython(modId, action);
+        backendStateRef.current = state;
+        setBackendState(state);
+        engineRef.current?.setLoadout(
+          state.profile.selected_jet || 'vanguard',
+          state.profile.selected_skin || 'factory',
+          state.profile.selected_trail || 'jet_default',
+          state.profile.equipped_mods || []
+        );
+        const modName = CYBER_MODS[modId]?.name || modId;
+        const nowEquipped = state.profile.equipped_mods.includes(modId);
+        showToast(
+          action === 'buy'
+            ? `UNLOCKED & EQUIPPED: ${modName.toUpperCase()}`
+            : nowEquipped
+            ? `EQUIPPED: ${modName.toUpperCase()}`
+            : `UNEQUIPPED: ${modName.toUpperCase()}`
+        );
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : 'Cyber-Mod update failed');
       } finally {
         setBusy(false);
       }
@@ -597,6 +683,8 @@ export default function App() {
         onDeleteSlot={handleDeleteSlot}
         onPurchaseUpgrade={handlePurchaseUpgrade}
         onSelectJet={handleSelectJet}
+        onSelectCosmetic={handleSelectCosmetic}
+        onManageMod={handleManageMod}
         onUpdatePilotName={handleUpdatePilotName}
         onReviveWithCredits={handleReviveWithCredits}
         onReturnToTitle={handleReturnToTitle}

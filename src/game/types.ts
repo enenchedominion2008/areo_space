@@ -33,7 +33,149 @@ export type BombKind = 'cluster' | 'mine' | 'torpedo';
 
 export type WeaponPattern = 'twin' | 'spread' | 'stream' | 'plasma' | 'seeker';
 
-export type FragmentKind = 'spread' | 'stream' | 'plasma' | 'seeker' | 'shield' | 'hull';
+export type FragmentKind = 'spread' | 'stream' | 'plasma' | 'seeker' | 'shield' | 'hull' | 'wingman';
+
+export type JetSkinId = 'factory' | 'carbon_stealth' | 'solar_gold' | 'holo_magenta' | 'arctic_chrome';
+
+export type TrailColorId = 'jet_default' | 'cyan_ion' | 'crimson_flare' | 'acid_emerald' | 'solar_gold' | 'ultraviolet';
+
+export type CyberModId =
+  | 'shield_siphon'
+  | 'extended_overdrive'
+  | 'twin_homing_pods'
+  | 'afterburner_capacitor'
+  | 'reactive_plating'
+  | 'fragment_magnet';
+
+export interface JetSkinSpec {
+  id: JetSkinId;
+  name: string;
+  cost: number;
+  swatchColor: string;
+  hullHex?: number;
+  secondaryHex?: number;
+  trimHex?: number;
+  accentHex?: number;
+}
+
+export const JET_SKINS: Record<JetSkinId, JetSkinSpec> = {
+  factory: {
+    id: 'factory',
+    name: 'Factory Spec',
+    cost: 0,
+    swatchColor: '#94a3b8',
+  },
+  carbon_stealth: {
+    id: 'carbon_stealth',
+    name: 'Carbon Stealth',
+    cost: 250,
+    swatchColor: '#38bdf8',
+    hullHex: 0x0f1520,
+    secondaryHex: 0x1e293b,
+    trimHex: 0x64748b,
+    accentHex: 0x38bdf8,
+  },
+  solar_gold: {
+    id: 'solar_gold',
+    name: 'Solar Gold',
+    cost: 400,
+    swatchColor: '#fbbf24',
+    hullHex: 0x3b2308,
+    secondaryHex: 0x92400e,
+    trimHex: 0xfbbf24,
+    accentHex: 0xfef08a,
+  },
+  holo_magenta: {
+    id: 'holo_magenta',
+    name: 'Holo-Magenta',
+    cost: 500,
+    swatchColor: '#e879f9',
+    hullHex: 0x240b3d,
+    secondaryHex: 0x581c87,
+    trimHex: 0xf472b6,
+    accentHex: 0xf0abfc,
+  },
+  arctic_chrome: {
+    id: 'arctic_chrome',
+    name: 'Arctic Chrome',
+    cost: 650,
+    swatchColor: '#2dd4bf',
+    hullHex: 0x94a3b8,
+    secondaryHex: 0x475569,
+    trimHex: 0xe2e8f0,
+    accentHex: 0x2dd4bf,
+  },
+};
+
+export interface TrailColorSpec {
+  id: TrailColorId;
+  name: string;
+  cost: number;
+  cssColor: string;
+  hex?: number;
+}
+
+export const TRAIL_COLORS: Record<TrailColorId, TrailColorSpec> = {
+  jet_default: { id: 'jet_default', name: 'Jet Signature', cost: 0, cssColor: '#cbd5e1' },
+  cyan_ion: { id: 'cyan_ion', name: 'Cyan Ion', cost: 150, cssColor: '#22d3ee', hex: 0x22d3ee },
+  crimson_flare: { id: 'crimson_flare', name: 'Crimson Flare', cost: 200, cssColor: '#fb7185', hex: 0xf43f5e },
+  acid_emerald: { id: 'acid_emerald', name: 'Acid Emerald', cost: 250, cssColor: '#4ade80', hex: 0x4ade80 },
+  solar_gold: { id: 'solar_gold', name: 'Solar Gold', cost: 300, cssColor: '#fbbf24', hex: 0xfbbf24 },
+  ultraviolet: { id: 'ultraviolet', name: 'Ultraviolet', cost: 350, cssColor: '#e879f9', hex: 0xd946ef },
+};
+
+export interface CyberModSpec {
+  id: CyberModId;
+  name: string;
+  cost: number;
+  desc: string;
+  accentColor: string;
+}
+
+export const CYBER_MODS: Record<CyberModId, CyberModSpec> = {
+  shield_siphon: {
+    id: 'shield_siphon',
+    name: 'Shield Siphon',
+    cost: 220,
+    desc: 'Every enemy kill restores +3 Shield (+12 on Dreadnought bosses).',
+    accentColor: '#38bdf8',
+  },
+  extended_overdrive: {
+    id: 'extended_overdrive',
+    name: 'Extended Overdrive',
+    cost: 260,
+    desc: 'Jet Special Power and Wingman Escort durations last +40% longer.',
+    accentColor: '#e879f9',
+  },
+  twin_homing_pods: {
+    id: 'twin_homing_pods',
+    name: 'Twin Homing Pods',
+    cost: 320,
+    desc: 'Fires 2 bonus auto-seeking micro-bolts every 1.35s in combat.',
+    accentColor: '#fbbf24',
+  },
+  afterburner_capacitor: {
+    id: 'afterburner_capacitor',
+    name: 'Turbo Capacitor',
+    cost: 240,
+    desc: 'Reduces Afterburner, Missile Barrage & Shield Pulse cooldowns by 25%.',
+    accentColor: '#22d3ee',
+  },
+  reactive_plating: {
+    id: 'reactive_plating',
+    name: 'Reactive Plating',
+    cost: 280,
+    desc: '+25 Max Hull, +25 Max Shield, and +15% primary weapon damage.',
+    accentColor: '#4ade80',
+  },
+  fragment_magnet: {
+    id: 'fragment_magnet',
+    name: 'Tractor Array',
+    cost: 180,
+    desc: 'Doubles crystal pickup pull range and grants +25% bonus score.',
+    accentColor: '#fb7185',
+  },
+};
 
 export interface JetSpec {
   id: JetId;
@@ -541,12 +683,17 @@ export interface HudSnapshot {
   bossChaseActive: boolean;
   bossChaseTimeLeft: number;
   bossChaseDuration: number;
+  wingmanTimeLeft: number;
+  equippedMods: CyberModId[];
   radarBlips: RadarBlip[];
 }
 
 export interface GameCheckpointPayload {
   wave: number;
   jetId: JetId;
+  skinId?: JetSkinId;
+  trailId?: TrailColorId;
+  equippedMods?: CyberModId[];
   score: number;
   multiplier: number;
   maxMultiplier: number;
@@ -570,6 +717,12 @@ export interface PilotProfile {
   id: number;
   pilot_name: string;
   selected_jet: JetId;
+  selected_skin: JetSkinId;
+  selected_trail: TrailColorId;
+  unlocked_skins: JetSkinId[];
+  unlocked_trails: TrailColorId[];
+  unlocked_mods: CyberModId[];
+  equipped_mods: CyberModId[];
   high_score: number;
   best_wave: number;
   total_kills: number;

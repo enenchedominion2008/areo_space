@@ -17,9 +17,26 @@ import {
   Download,
   Award,
   BookOpen,
+  Palette,
+  Sparkles,
+  Cpu,
 } from 'lucide-react';
-import { JETS, type BackendState, type GamePhase, type HudSnapshot, type JetId, type SaveSlotRecord } from '../game/types';
+import {
+  CYBER_MODS,
+  JET_SKINS,
+  JETS,
+  TRAIL_COLORS,
+  type BackendState,
+  type CyberModId,
+  type GamePhase,
+  type HudSnapshot,
+  type JetId,
+  type JetSkinId,
+  type SaveSlotRecord,
+  type TrailColorId,
+} from '../game/types';
 import { usePWAInstall } from '../hooks/usePWAInstall';
+import { JetPreviewCanvas } from './JetPreviewCanvas';
 
 interface GameModalsProps {
   phase: GamePhase;
@@ -37,6 +54,8 @@ interface GameModalsProps {
   onDeleteSlot: (slotId: string) => void;
   onPurchaseUpgrade: (type: 'hull_upgrade' | 'shield_upgrade' | 'laser_upgrade') => void;
   onSelectJet: (jetId: JetId) => void;
+  onSelectCosmetic: (kind: 'skin' | 'trail', id: JetSkinId | TrailColorId) => void;
+  onManageMod: (modId: CyberModId, action: 'buy' | 'toggle') => void;
   onUpdatePilotName: (name: string) => void;
   onReviveWithCredits: () => void;
   onReturnToTitle: () => void;
@@ -60,6 +79,8 @@ export const GameModals: React.FC<GameModalsProps> = ({
   onDeleteSlot,
   onPurchaseUpgrade,
   onSelectJet,
+  onSelectCosmetic,
+  onManageMod,
   onUpdatePilotName,
   onReviveWithCredits,
   onReturnToTitle,
@@ -72,6 +93,12 @@ export const GameModals: React.FC<GameModalsProps> = ({
 
   const profile = backendState?.profile;
   const selectedJetId: JetId = profile?.selected_jet || hud.jetId || 'vanguard';
+  const selectedSkinId: JetSkinId = profile?.selected_skin || 'factory';
+  const selectedTrailId: TrailColorId = profile?.selected_trail || 'jet_default';
+  const unlockedSkins: JetSkinId[] = profile?.unlocked_skins || ['factory'];
+  const unlockedTrails: TrailColorId[] = profile?.unlocked_trails || ['jet_default'];
+  const unlockedMods: CyberModId[] = profile?.unlocked_mods || [];
+  const equippedMods: CyberModId[] = profile?.equipped_mods || [];
   const activeJet = JETS[selectedJetId];
   const slots = backendState?.slots ?? [];
   const autosaveSlot = slots.find((s) => s.slot_id === 'autosave') || slots[0];
@@ -208,6 +235,66 @@ export const GameModals: React.FC<GameModalsProps> = ({
                   </div>
                 </div>
 
+                {/* Live 3D Visual Hangar Showcase */}
+                <div className="grid grid-cols-1 md:grid-cols-5 gap-3 bg-[#040a12] border border-emerald-500/35 p-3 rounded-sm">
+                  <JetPreviewCanvas
+                    jetId={selectedJetId}
+                    skinId={selectedSkinId}
+                    trailId={selectedTrailId}
+                    className="md:col-span-3 h-52 sm:h-60"
+                  />
+
+                  <div className="md:col-span-2 flex flex-col justify-between gap-2.5 p-2 bg-[#06101b] border border-slate-800 rounded-sm">
+                    <div>
+                      <div className="text-[10px] tracking-[0.18em] text-emerald-300 uppercase">
+                        Active Airframe Inspection
+                      </div>
+                      <h3 className="mt-0.5 text-lg font-extrabold" style={{ color: activeJet.primaryColor }}>
+                        {activeJet.name}
+                      </h3>
+                      <div className="text-[11px] text-slate-400">
+                        {activeJet.role} · {activeJet.codename}
+                      </div>
+
+                      <div className="mt-2.5 grid grid-cols-2 gap-1.5 text-[11px]">
+                        <div className="p-1.5 bg-[#040a12] border border-slate-800">
+                          <span className="text-slate-400 block text-[9px]">SPEED</span>
+                          <span className="text-sky-300 font-bold tabular-nums">
+                            {Math.round(activeJet.speedMult * 100)}%
+                          </span>
+                        </div>
+                        <div className="p-1.5 bg-[#040a12] border border-slate-800">
+                          <span className="text-slate-400 block text-[9px]">FIREPOWER</span>
+                          <span className="text-amber-300 font-bold tabular-nums">
+                            {Math.round(activeJet.damageMult * 100)}%
+                          </span>
+                        </div>
+                        <div className="p-1.5 bg-[#040a12] border border-slate-800">
+                          <span className="text-slate-400 block text-[9px]">HULL / SHIELD</span>
+                          <span className="text-emerald-300 font-bold tabular-nums">
+                            {activeJet.hullBonus >= 0 ? `+${activeJet.hullBonus}` : activeJet.hullBonus} /{' '}
+                            {activeJet.shieldBonus >= 0 ? `+${activeJet.shieldBonus}` : activeJet.shieldBonus}
+                          </span>
+                        </div>
+                        <div className="p-1.5 bg-[#040a12] border border-slate-800">
+                          <span className="text-slate-400 block text-[9px]">CYBER-MODS</span>
+                          <span className="text-fuchsia-300 font-bold tabular-nums">
+                            {equippedMods.length}/2 ACTIVE
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="p-2 bg-black/45 border border-slate-800 rounded-sm">
+                      <div className="text-[11px] font-bold text-amber-300 flex items-center justify-between">
+                        <span>⚡ {activeJet.specialName}</span>
+                        <span className="text-[10px] text-slate-400">{activeJet.specialCooldown}s CD</span>
+                      </div>
+                      <p className="mt-1 text-[11px] text-slate-300 leading-snug">{activeJet.specialDesc}</p>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Jet Fleet Selection (8 Jets including Cyberpunk Designs) */}
                 <div>
                   <div className="text-xs tracking-[0.18em] text-emerald-300 uppercase mb-2 flex items-center gap-1.5">
@@ -223,38 +310,204 @@ export const GameModals: React.FC<GameModalsProps> = ({
                           type="button"
                           disabled={busy}
                           onClick={() => onSelectJet(jet.id)}
-                          className={`text-left p-3.5 rounded-sm border transition-colors ${
+                          className={`text-left p-3 rounded-sm border transition-colors ${
                             isSelected
                               ? 'bg-emerald-950/45 border-emerald-400 shadow-[0_0_18px_rgba(0,255,136,0.2)]'
                               : 'bg-[#040a12] border-slate-700/80 hover:border-slate-500'
                           }`}
                         >
-                          <div className="flex items-center justify-between">
+                          <div className="flex items-center justify-between gap-2">
                             <span className="font-bold text-sm" style={{ color: jet.primaryColor }}>
                               {jet.name}
                             </span>
                             <span
-                              className={`text-[10px] px-2 py-0.5 font-bold uppercase border ${
+                              className={`text-[10px] px-2 py-0.5 font-bold uppercase border whitespace-nowrap shrink-0 ${
                                 isSelected
                                   ? 'bg-emerald-500/25 border-emerald-400 text-emerald-200'
                                   : 'border-slate-600 text-slate-400'
                               }`}
                             >
-                              {isSelected ? 'ACTIVE JET' : 'SELECT'}
+                              {isSelected ? 'ACTIVE JET' : 'PREVIEW'}
                             </span>
                           </div>
                           <div className="text-[11px] text-slate-400 mt-0.5">
                             {jet.role} · Speed {Math.round(jet.speedMult * 100)}% · Dmg{' '}
                             {Math.round(jet.damageMult * 100)}%
                           </div>
-                          <div className="mt-2 p-2 bg-black/45 border border-slate-800 rounded-sm">
-                            <div className="text-[11px] font-bold text-amber-300 flex items-center justify-between">
-                              <span>⚡ {jet.specialName}</span>
-                              <span className="text-[10px] text-slate-400">{jet.specialCooldown}s CD</span>
-                            </div>
-                            <p className="mt-1 text-[11px] text-slate-300 leading-snug">{jet.specialDesc}</p>
+                          <div className="mt-1.5 text-[11px] text-slate-300 leading-snug">
+                            <span className="text-amber-300 font-bold">⚡ {jet.specialName}:</span> {jet.specialDesc}
                           </div>
                         </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Unlockable Jet Skins & Custom Thruster Trails */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <div className="text-xs tracking-[0.18em] text-sky-300 uppercase mb-2 flex items-center gap-1.5">
+                      <Palette className="w-4 h-4" /> Jet Liveries (Skins)
+                    </div>
+                    <div className="space-y-2">
+                      {(Object.keys(JET_SKINS) as JetSkinId[]).map((skinKey) => {
+                        const skin = JET_SKINS[skinKey];
+                        const unlocked = unlockedSkins.includes(skin.id);
+                        const equipped = selectedSkinId === skin.id;
+                        const canAfford = (profile?.credits ?? 0) >= skin.cost;
+                        return (
+                          <div
+                            key={skin.id}
+                            className={`flex items-center justify-between gap-2 p-2.5 rounded-sm border ${
+                              equipped
+                                ? 'bg-sky-950/40 border-sky-400'
+                                : 'bg-[#040a12] border-slate-700/80'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <span
+                                className="w-4 h-4 rounded-sm border border-white/30 shrink-0"
+                                style={{ backgroundColor: skin.swatchColor }}
+                              />
+                              <div className="min-w-0">
+                                <div className="text-xs font-bold text-white truncate">{skin.name}</div>
+                                <div className="text-[10px] text-slate-400">
+                                  {unlocked ? (equipped ? 'Currently Equipped' : 'Unlocked') : `${skin.cost} CR`}
+                                </div>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              disabled={busy || equipped || (!unlocked && !canAfford)}
+                              onClick={() => onSelectCosmetic('skin', skin.id)}
+                              className={`px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider border rounded-sm whitespace-nowrap shrink-0 disabled:opacity-45 ${
+                                equipped
+                                  ? 'bg-sky-500/30 border-sky-300 text-sky-100'
+                                  : unlocked
+                                  ? 'bg-emerald-500/20 hover:bg-emerald-500/35 border-emerald-400/60 text-emerald-200'
+                                  : 'bg-amber-500/20 hover:bg-amber-500/35 border-amber-400/70 text-amber-200'
+                              }`}
+                            >
+                              {equipped ? 'EQUIPPED' : unlocked ? 'EQUIP' : `BUY · ${skin.cost} CR`}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="text-xs tracking-[0.18em] text-fuchsia-300 uppercase mb-2 flex items-center gap-1.5">
+                      <Sparkles className="w-4 h-4" /> Wingtip &amp; Thruster Trails
+                    </div>
+                    <div className="space-y-2">
+                      {(Object.keys(TRAIL_COLORS) as TrailColorId[]).map((trailKey) => {
+                        const trail = TRAIL_COLORS[trailKey];
+                        const unlocked = unlockedTrails.includes(trail.id);
+                        const equipped = selectedTrailId === trail.id;
+                        const canAfford = (profile?.credits ?? 0) >= trail.cost;
+                        return (
+                          <div
+                            key={trail.id}
+                            className={`flex items-center justify-between gap-2 p-2.5 rounded-sm border ${
+                              equipped
+                                ? 'bg-fuchsia-950/40 border-fuchsia-400'
+                                : 'bg-[#040a12] border-slate-700/80'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <span
+                                className="w-4 h-4 rounded-full border border-white/30 shrink-0"
+                                style={{
+                                  backgroundColor: trail.cssColor,
+                                  boxShadow: `0 0 8px ${trail.cssColor}`,
+                                }}
+                              />
+                              <div className="min-w-0">
+                                <div className="text-xs font-bold text-white truncate">{trail.name}</div>
+                                <div className="text-[10px] text-slate-400">
+                                  {unlocked ? (equipped ? 'Currently Active' : 'Unlocked') : `${trail.cost} CR`}
+                                </div>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              disabled={busy || equipped || (!unlocked && !canAfford)}
+                              onClick={() => onSelectCosmetic('trail', trail.id)}
+                              className={`px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider border rounded-sm whitespace-nowrap shrink-0 disabled:opacity-45 ${
+                                equipped
+                                  ? 'bg-fuchsia-500/30 border-fuchsia-300 text-fuchsia-100'
+                                  : unlocked
+                                  ? 'bg-emerald-500/20 hover:bg-emerald-500/35 border-emerald-400/60 text-emerald-200'
+                                  : 'bg-amber-500/20 hover:bg-amber-500/35 border-amber-400/70 text-amber-200'
+                              }`}
+                            >
+                              {equipped ? 'ACTIVE' : unlocked ? 'EQUIP' : `BUY · ${trail.cost} CR`}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Equipable Cyber-Mods (Max 2 Passive Chips) */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-xs tracking-[0.18em] text-cyan-300 uppercase flex items-center gap-1.5">
+                      <Cpu className="w-4 h-4" /> Equipable Cyber-Mods (Passive Chips)
+                    </div>
+                    <span className="text-xs font-bold text-fuchsia-300 tabular-nums">
+                      SLOTS: {equippedMods.length}/2 EQUIPPED
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {(Object.keys(CYBER_MODS) as CyberModId[]).map((modKey) => {
+                      const mod = CYBER_MODS[modKey];
+                      const unlocked = unlockedMods.includes(mod.id);
+                      const equipped = equippedMods.includes(mod.id);
+                      const canAfford = (profile?.credits ?? 0) >= mod.cost;
+                      return (
+                        <div
+                          key={mod.id}
+                          className={`p-3 rounded-sm border flex flex-col justify-between gap-2 ${
+                            equipped
+                              ? 'bg-cyan-950/40 border-cyan-400 shadow-[0_0_14px_rgba(34,211,238,0.18)]'
+                              : 'bg-[#040a12] border-slate-700/80'
+                          }`}
+                        >
+                          <div>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs font-bold" style={{ color: mod.accentColor }}>
+                                {mod.name}
+                              </span>
+                              <span className="text-[10px] text-slate-400 tabular-nums">
+                                {equipped ? 'EQUIPPED' : unlocked ? 'OWNED' : `${mod.cost} CR`}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-[11px] text-slate-300 leading-snug">{mod.desc}</p>
+                          </div>
+                          <button
+                            type="button"
+                            disabled={busy || (!unlocked && !canAfford)}
+                            onClick={() => onManageMod(mod.id, unlocked ? 'toggle' : 'buy')}
+                            className={`w-full py-1.5 text-[11px] font-bold uppercase tracking-wider border rounded-sm transition-colors disabled:opacity-45 ${
+                              equipped
+                                ? 'bg-cyan-500/30 hover:bg-cyan-500/45 border-cyan-300 text-cyan-100'
+                                : unlocked
+                                ? 'bg-emerald-500/20 hover:bg-emerald-500/35 border-emerald-400/60 text-emerald-200'
+                                : 'bg-amber-500/20 hover:bg-amber-500/35 border-amber-400/70 text-amber-200'
+                            }`}
+                          >
+                            {equipped
+                              ? 'UNEQUIP CHIP'
+                              : unlocked
+                              ? equippedMods.length >= 2
+                                ? 'SWAP INTO SLOT'
+                                : 'EQUIP CHIP'
+                              : `UNLOCK · ${mod.cost} CR`}
+                          </button>
+                        </div>
                       );
                     })}
                   </div>

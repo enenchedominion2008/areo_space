@@ -29,6 +29,29 @@ VALID_JETS = (
     "netrunner",
     "shogun_mk9",
 )
+SKIN_COSTS = {
+    "factory": 0,
+    "carbon_stealth": 250,
+    "solar_gold": 400,
+    "holo_magenta": 500,
+    "arctic_chrome": 650,
+}
+TRAIL_COSTS = {
+    "jet_default": 0,
+    "cyan_ion": 150,
+    "crimson_flare": 200,
+    "acid_emerald": 250,
+    "solar_gold": 300,
+    "ultraviolet": 350,
+}
+MOD_COSTS = {
+    "shield_siphon": 220,
+    "extended_overdrive": 260,
+    "twin_homing_pods": 320,
+    "afterburner_capacitor": 240,
+    "reactive_plating": 280,
+    "fragment_magnet": 180,
+}
 
 
 def utc_now_iso() -> str:
@@ -74,6 +97,12 @@ def init_db() -> None:
                 """
             )
             ensure_column(cur, "pilot_profile", "selected_jet", "TEXT NOT NULL DEFAULT 'vanguard'")
+            ensure_column(cur, "pilot_profile", "selected_skin", "TEXT NOT NULL DEFAULT 'factory'")
+            ensure_column(cur, "pilot_profile", "selected_trail", "TEXT NOT NULL DEFAULT 'jet_default'")
+            ensure_column(cur, "pilot_profile", "unlocked_skins_json", "TEXT NOT NULL DEFAULT '[\"factory\"]'")
+            ensure_column(cur, "pilot_profile", "unlocked_trails_json", "TEXT NOT NULL DEFAULT '[\"jet_default\"]'")
+            ensure_column(cur, "pilot_profile", "unlocked_mods_json", "TEXT NOT NULL DEFAULT '[]'")
+            ensure_column(cur, "pilot_profile", "equipped_mods_json", "TEXT NOT NULL DEFAULT '[]'")
 
             cur.execute(
                 """
@@ -139,6 +168,23 @@ def fetch_full_state() -> dict:
             cur.execute("SELECT * FROM pilot_profile WHERE id = 1")
             profile_row = cur.fetchone()
             profile = dict(profile_row) if profile_row else {}
+            if profile:
+                def parse_list(key: str, fallback: list) -> list:
+                    raw = profile.pop(key, None)
+                    if not raw:
+                        return list(fallback)
+                    try:
+                        parsed = json.loads(raw)
+                        return parsed if isinstance(parsed, list) else list(fallback)
+                    except Exception:
+                        return list(fallback)
+
+                profile["unlocked_skins"] = parse_list("unlocked_skins_json", ["factory"])
+                profile["unlocked_trails"] = parse_list("unlocked_trails_json", ["jet_default"])
+                profile["unlocked_mods"] = parse_list("unlocked_mods_json", [])
+                profile["equipped_mods"] = parse_list("equipped_mods_json", [])
+                profile.setdefault("selected_skin", "factory")
+                profile.setdefault("selected_trail", "jet_default")
 
             cur.execute(
                 """
@@ -254,7 +300,7 @@ class SaveStateHandler(BaseHTTPRequestHandler):
             selected_jet = str(body.get("selected_jet") or "vanguard")
             if selected_jet not in VALID_JETS:
                 selected_jet = "vanguard"
-            wave = max(1, min(20, int(body.get("wave", 1))))
+            wave = max(1, min(30, int(body.get("wave", 1))))
             score = max(0, int(body.get("score", 0)))
             multiplier = max(1, int(body.get("multiplier", 1)))
             health = float(body.get("health", 100))
@@ -337,7 +383,7 @@ class SaveStateHandler(BaseHTTPRequestHandler):
             if selected_jet not in VALID_JETS:
                 selected_jet = "vanguard"
             score = max(0, int(body.get("score", 0)))
-            wave = max(1, min(20, int(body.get("wave", 1))))
+            wave = max(1, min(30, int(body.get("wave", 1))))
             kills = max(0, int(body.get("kills", 0)))
             max_multiplier = max(1, int(body.get("max_multiplier", 1)))
             accuracy = max(0.0, min(100.0, float(body.get("accuracy", 0.0))))
@@ -482,6 +528,124 @@ class SaveStateHandler(BaseHTTPRequestHandler):
                     conn.close()
 
             self.send_json(200, {"ok": True, "cost": revive_cost, "state": fetch_full_state()})
+            return
+
+        if path == "/api/cosmetic":
+            kind = str(body.get("kind") or "")
+            item_id = str(body.get("id") or "")
+            if kind == "skin" and item_id in SKIN_COSTS:
+                cost = SKIN_COSTS[item_id]
+                unlocked_col = "unlocked_skins_json"
+                selected_col = "selected_skin"
+                default_list = ["factory"]
+            elif kind == "trail" and item_id in TRAIL_COSTS:
+                cost = TRAIL_COSTS[item_id]
+                unlocked_col = "unlocked_trails_json"
+                selected_col = "selected_trail"
+                default_list = ["jet_default"]
+            else:
+                self.send_json(400, {"error": "Unknown cosmetic kind or id"})
+                return
+
+            with DB_LOCK:
+                conn = get_conn()
+                try:
+                    cur = conn.cursor()
+                    cur.execute("SELECT * FROM pilot_profile WHERE id = 1")
+                    profile = dict(cur.fetchone())
+                    try:
+                        unlocked = json.loads(profile.get(unlocked_col) or "[]")
+                        if not isinstance(unlocked, list):
+                            unlocked = list(default_list)
+                    except Exception:
+                        unlocked = list(default_list)
+
+                    credits_left = int(profile["credits"])
+                    if item_id not in unlocked:
+                        if credits_left < cost:
+                            self.send_json(400, {"error": f"Need {cost} credits"})
+                            return
+                        credits_left -= cost
+                        unlocked.append(item_id)
+
+                    cur.execute(
+                        f"""
+                        UPDATE pilot_profile
+                        SET {selected_col} = ?,
+                            {unlocked_col} = ?,
+                            credits = ?,
+                            updated_at = ?
+                        WHERE id = 1
+                        """,
+                        (item_id, json.dumps(unlocked), credits_left, utc_now_iso()),
+                    )
+                    conn.commit()
+                finally:
+                    conn.close()
+
+            self.send_json(200, {"ok": True, "state": fetch_full_state()})
+            return
+
+        if path == "/api/mod":
+            mod_id = str(body.get("mod_id") or "")
+            action = str(body.get("action") or "toggle")
+            if mod_id not in MOD_COSTS:
+                self.send_json(400, {"error": "Unknown cyber-mod id"})
+                return
+
+            with DB_LOCK:
+                conn = get_conn()
+                try:
+                    cur = conn.cursor()
+                    cur.execute("SELECT * FROM pilot_profile WHERE id = 1")
+                    profile = dict(cur.fetchone())
+                    try:
+                        unlocked = json.loads(profile.get("unlocked_mods_json") or "[]")
+                        if not isinstance(unlocked, list):
+                            unlocked = []
+                    except Exception:
+                        unlocked = []
+                    try:
+                        equipped = json.loads(profile.get("equipped_mods_json") or "[]")
+                        if not isinstance(equipped, list):
+                            equipped = []
+                    except Exception:
+                        equipped = []
+
+                    credits_left = int(profile["credits"])
+                    if mod_id not in unlocked:
+                        cost = MOD_COSTS[mod_id]
+                        if credits_left < cost:
+                            self.send_json(400, {"error": f"Need {cost} credits"})
+                            return
+                        credits_left -= cost
+                        unlocked.append(mod_id)
+                        if len(equipped) < 2:
+                            equipped.append(mod_id)
+                    elif action == "toggle":
+                        if mod_id in equipped:
+                            equipped = [m for m in equipped if m != mod_id]
+                        else:
+                            if len(equipped) >= 2:
+                                equipped.pop(0)
+                            equipped.append(mod_id)
+
+                    cur.execute(
+                        """
+                        UPDATE pilot_profile
+                        SET unlocked_mods_json = ?,
+                            equipped_mods_json = ?,
+                            credits = ?,
+                            updated_at = ?
+                        WHERE id = 1
+                        """,
+                        (json.dumps(unlocked), json.dumps(equipped), credits_left, utc_now_iso()),
+                    )
+                    conn.commit()
+                finally:
+                    conn.close()
+
+            self.send_json(200, {"ok": True, "state": fetch_full_state()})
             return
 
         self.send_json(404, {"error": "Not found"})

@@ -12,8 +12,9 @@ import {
   Rocket,
   ShieldPlus,
   BookOpen,
+  Users,
 } from 'lucide-react';
-import type { HudSnapshot, WeaponPattern } from '../game/types';
+import { CYBER_MODS, type HudSnapshot, type WeaponPattern } from '../game/types';
 import type { TutorialStepId } from '../game/tutorial';
 
 interface GameHudProps {
@@ -305,8 +306,25 @@ export const GameHud: React.FC<GameHudProps> = ({
 
       {/* Bottom Perimeter: Left Hull/Joystick + Right Ability Cluster (Center Ship Area Completely Open) */}
       <div className="flex items-end justify-between gap-2">
-        {/* Bottom-Left: Compact Shield/Hull Bars + Optional Virtual Joystick */}
+        {/* Bottom-Left: Wingman Timer, Compact Shield/Hull Bars + Optional Virtual Joystick */}
         <div className="flex flex-col items-start gap-2">
+          {hud.wingmanTimeLeft > 0 && (
+            <div className="w-36 sm:w-52 bg-[#04121d]/88 border border-sky-400/70 px-2.5 py-1.5 rounded-sm">
+              <div className="flex items-center justify-between text-[9px] sm:text-[10px] font-bold tracking-wider text-sky-200 uppercase mb-0.5">
+                <span className="flex items-center gap-1">
+                  <Users className="w-2.5 h-2.5 text-sky-300" /> WINGMEN
+                </span>
+                <span className="tabular-nums text-cyan-300">{hud.wingmanTimeLeft.toFixed(1)}s</span>
+              </div>
+              <div className="h-1 w-full bg-slate-900 overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-sky-400 to-cyan-300 transition-[width] duration-75"
+                  style={{ width: `${Math.max(0, Math.min(100, (hud.wingmanTimeLeft / 14) * 100))}%` }}
+                />
+              </div>
+            </div>
+          )}
+
           <div
             className={`w-36 sm:w-52 bg-[#040b14]/84 border px-2.5 py-2 rounded-sm transition-all ${
               tutorialHighlight === 'shield_pulse'
@@ -378,6 +396,12 @@ export const GameHud: React.FC<GameHudProps> = ({
                 {hud.bossChaseActive ? 'LOCKED' : 'AUTO'}
               </span>
             </div>
+
+            {hud.equippedMods.length > 0 && (
+              <div className="mt-1 pt-1 border-t border-slate-800/80 text-[8px] text-amber-300/90 truncate uppercase tracking-wider">
+                MODS: {hud.equippedMods.map((id) => CYBER_MODS[id]?.name || id).join(' · ')}
+              </div>
+            )}
           </div>
 
           {touchMode && (
