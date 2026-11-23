@@ -353,7 +353,7 @@ export const GameModals: React.FC<GameModalsProps> = ({
                       skinId={selectedSkinId}
                       trailId={selectedTrailId}
                       slideDirection={jetSlideDir}
-                      className="h-80 sm:h-[370px]"
+                      className="h-56 sm:h-72 md:h-[340px]"
                     >
                       {/* Top Info Overlay (Unboxed, Non-Obstructing) */}
                       <div className="pointer-events-none absolute top-3 left-3.5 right-3.5 flex items-start justify-between gap-2">

@@ -35,10 +35,11 @@ export const JetPreviewCanvas: React.FC<JetPreviewCanvasProps> = ({
   // Incoming animation state for smooth jet swaps and subtle cosmetic equip pop
   const incomingAnimRef = useRef<{ x: number; scale: number; roll: number; pulse: number }>({
     x: 0,
-    scale: 1.06,
+    scale: 0.78,
     roll: 0,
     pulse: 0,
   });
+  const baseScaleRef = useRef<number>(0.78);
 
   const [webglLost, setWebglLost] = useState(false);
 
@@ -76,9 +77,10 @@ export const JetPreviewCanvas: React.FC<JetPreviewCanvasProps> = ({
 
     const w = container.clientWidth || 320;
     const h = container.clientHeight || 260;
+    baseScaleRef.current = w < 540 ? 0.7 : 0.8;
     const camera = new THREE.PerspectiveCamera(40, w / Math.max(1, h), 0.1, 60);
-    camera.position.set(0, 2.05, 5.75);
-    camera.lookAt(0, 0.02, 0);
+    camera.position.set(0, 2.25, 6.75);
+    camera.lookAt(0, 0.08, 0);
 
     // 3-point studio lighting
     const hemi = new THREE.HemisphereLight(0x93c5fd, 0x0f172a, 0.85);
@@ -95,7 +97,8 @@ export const JetPreviewCanvas: React.FC<JetPreviewCanvasProps> = ({
 
     // Hangar turntable pedestal
     const padGroup = new THREE.Group();
-    padGroup.position.y = -0.82;
+    padGroup.position.y = -0.88;
+    padGroup.scale.setScalar(0.8);
     const padDisc = new THREE.Mesh(
       new THREE.CylinderGeometry(2.35, 2.55, 0.14, 36),
       new THREE.MeshStandardMaterial({
@@ -180,6 +183,7 @@ export const JetPreviewCanvas: React.FC<JetPreviewCanvasProps> = ({
       if (!entry) return;
       const cw = Math.max(120, Math.round(entry.contentRect.width));
       const ch = Math.max(120, Math.round(entry.contentRect.height));
+      baseScaleRef.current = cw < 540 ? 0.7 : 0.8;
       camera.aspect = cw / ch;
       camera.updateProjectionMatrix();
       renderer.setSize(cw, ch, false);
@@ -201,12 +205,12 @@ export const JetPreviewCanvas: React.FC<JetPreviewCanvasProps> = ({
       anim.x = THREE.MathUtils.lerp(anim.x, 0, dampFactor);
       anim.roll = THREE.MathUtils.lerp(anim.roll, 0, dampFactor);
       anim.pulse = Math.max(0, anim.pulse - dt * 5.2);
-      const targetScale = 1.08 + Math.sin(anim.pulse * Math.PI) * 0.08;
+      const targetScale = baseScaleRef.current + Math.sin(anim.pulse * Math.PI) * 0.06;
       anim.scale = THREE.MathUtils.lerp(anim.scale, targetScale, dampFactor);
 
       const rig = rigRef.current;
       if (rig) {
-        rig.group.position.set(anim.x, 0.14 + Math.sin(now * 0.0028) * 0.06, 0);
+        rig.group.position.set(anim.x, 0.24 + Math.sin(now * 0.0028) * 0.05, 0);
         rig.group.rotation.y = yaw;
         rig.group.rotation.x = pitch;
         rig.group.rotation.z = anim.roll;
@@ -309,21 +313,22 @@ export const JetPreviewCanvas: React.FC<JetPreviewCanvasProps> = ({
       const dir = slideDirRef.current;
       incomingAnimRef.current = {
         x: dir * 6.4,
-        scale: 0.52,
+        scale: 0.44,
         roll: -dir * 0.38,
         pulse: 0,
       };
-      nextRig.group.position.set(dir * 6.4, 0.14, 0);
-      nextRig.group.scale.setScalar(0.52);
+      nextRig.group.position.set(dir * 6.4, 0.24, 0);
+      nextRig.group.scale.setScalar(0.44);
     } else {
+      const restScale = baseScaleRef.current;
       incomingAnimRef.current = {
         x: 0,
-        scale: 1.08,
+        scale: restScale,
         roll: 0,
         pulse: prevJetIdRef.current === jetId ? 1 : 0,
       };
-      nextRig.group.position.set(0, 0.14, 0);
-      nextRig.group.scale.setScalar(1.08);
+      nextRig.group.position.set(0, 0.24, 0);
+      nextRig.group.scale.setScalar(restScale);
     }
 
     prevJetIdRef.current = jetId;

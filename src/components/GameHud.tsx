@@ -503,7 +503,7 @@ export const GameHud: React.FC<GameHudProps> = ({
               onPointerMove={handleJoyMove}
               onPointerUp={handleJoyUp}
               onPointerCancel={handleJoyUp}
-              className={`pointer-events-auto ml-5 mb-3 sm:ml-7 sm:mb-4 relative w-24 h-24 sm:w-28 sm:h-28 rounded-full border-2 bg-[#040d17]/65 flex items-center justify-center touch-none ${
+              className={`pointer-events-auto ml-11 mb-6 sm:ml-14 sm:mb-7 relative w-24 h-24 sm:w-28 sm:h-28 rounded-full border-2 bg-[#040d17]/65 flex items-center justify-center touch-none ${
                 tutorialHighlight === 'move'
                   ? 'border-amber-300 ring-4 ring-amber-300/90 shadow-[0_0_24px_rgba(251,191,36,0.85)] animate-pulse'
                   : 'border-emerald-400/50'
