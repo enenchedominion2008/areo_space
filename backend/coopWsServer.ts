@@ -10,7 +10,7 @@ import {
   type JetId,
   type JetSkinId,
   type TrailColorId,
-} from '../src/game/types';
+} from '../src/game/types.ts';
 import {
   MAX_COOP_PLAYERS,
   type CoopClientToServerMessage,
@@ -20,7 +20,7 @@ import {
   type RoomPlayerProfile,
   type RoomStatePayload,
   type RoomStatus,
-} from '../src/game/multiplayerTypes';
+} from '../src/game/multiplayerTypes.ts';
 
 interface ClientConn {
   playerId: string;

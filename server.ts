@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { attachCoopWebSocketServer } from './backend/coopWsServer';
+import { attachCoopWebSocketServer } from './backend/coopWsServer.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

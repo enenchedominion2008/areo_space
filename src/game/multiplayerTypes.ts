@@ -8,7 +8,7 @@ import type {
   JetId,
   JetSkinId,
   TrailColorId,
-} from './types';
+} from './types.ts';
 
 export const MAX_COOP_PLAYERS = 2;
 
