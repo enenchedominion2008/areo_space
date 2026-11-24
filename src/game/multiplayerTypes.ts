@@ -166,9 +166,11 @@ export interface CoopMatchEndPayload {
 }
 
 export type CoopClientToServerMessage =
+  | { type: 'ws:ping' }
   | { type: 'room:list' }
   | { type: 'room:create'; profile: RoomPlayerProfile; startLevel?: number }
   | { type: 'room:join'; code: string; profile: RoomPlayerProfile }
+  | { type: 'room:rejoin'; code: string; previousPlayerId: string; profile: RoomPlayerProfile }
   | { type: 'room:leave' }
   | { type: 'room:profile'; profile: RoomPlayerProfile }
   | { type: 'room:ready'; ready: boolean }
@@ -200,6 +202,7 @@ export type CoopClientToServerMessage =
 
 export type CoopServerToClientMessage =
   | { type: 'ws:welcome'; playerId: string }
+  | { type: 'ws:pong' }
   | { type: 'room:list_result'; rooms: OpenRoomListing[] }
   | { type: 'room:state'; room: RoomStatePayload; yourId: string }
   | { type: 'room:error'; message: string }

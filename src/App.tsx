@@ -148,6 +148,7 @@ export default function App() {
   const mpClientRef = useRef<MultiplayerClient | null>(null);
   const coopPlayerIdRef = useRef<string | null>(null);
   const coopRoomRef = useRef<RoomStatePayload | null>(null);
+  const autoJoinedRoomRef = useRef(false);
   const jetSelectSeqRef = useRef(0);
 
   const initialRoomCode = getInitialRoomCodeFromUrl();
@@ -351,8 +352,14 @@ export default function App() {
       onStatusChange: (status) => {
         setWsStatus(status);
         if (status === 'connected') {
+          setCoopError((prev) =>
+            prev && prev.includes('retrying link') ? null : prev
+          );
           client.refreshRooms();
         }
+      },
+      onConnectionIssue: (message) => {
+        setCoopError(message);
       },
       onWelcome: (id) => {
         coopPlayerIdRef.current = id;
@@ -406,6 +413,7 @@ export default function App() {
     mpClientRef.current = client;
 
     if (initialRoomCode) {
+      client.setAutoReconnect(true);
       client.connect();
     }
 
@@ -415,6 +423,44 @@ export default function App() {
     };
   }, [initialRoomCode, showToast]);
 
+  // Keep WebSocket auto-reconnect active whenever Co-Op UI or match is active
+  useEffect(() => {
+    const client = mpClientRef.current;
+    if (!client) return;
+    const needed = activeTab === 'coop' || coopRoom !== null || Boolean(hud.coop?.active);
+    client.setAutoReconnect(needed);
+    if (needed && client.getStatus() === 'disconnected') {
+      client.connect();
+    }
+  }, [activeTab, coopRoom, hud.coop?.active]);
+
+  // Auto-join when opened via ?room=CODE invite link once connected
+  useEffect(() => {
+    if (
+      !initialRoomCode ||
+      initialRoomCode.length !== 4 ||
+      autoJoinedRoomRef.current ||
+      wsStatus !== 'connected' ||
+      coopRoom !== null
+    ) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      if (autoJoinedRoomRef.current || coopRoomRef.current) return;
+      autoJoinedRoomRef.current = true;
+      mpClientRef.current?.joinRoom(
+        initialRoomCode,
+        profileToRoomProfile(backendStateRef.current?.profile)
+      );
+      if (typeof window !== 'undefined' && window.location.search.includes('room=')) {
+        const nextUrl = new URL(window.location.href);
+        nextUrl.searchParams.delete('room');
+        window.history.replaceState({}, '', `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`);
+      }
+    }, backendState ? 50 : 350);
+    return () => window.clearTimeout(timer);
+  }, [backendState, coopRoom, initialRoomCode, wsStatus]);
+
   const syncCoopProfile = useCallback((profile?: PilotProfile | null) => {
     if (!mpClientRef.current || !coopRoom) return;
     mpClientRef.current.updateProfile(profileToRoomProfile(profile));
@@ -423,18 +469,27 @@ export default function App() {
   const handleOpenCoop = useCallback(() => {
     setCoopError(null);
     setActiveTab('coop');
+    mpClientRef.current?.setAutoReconnect(true);
     mpClientRef.current?.connect();
     mpClientRef.current?.refreshRooms();
   }, []);
 
   const handleCreateCoopRoom = useCallback((startLevel: number) => {
     setCoopError(null);
+    mpClientRef.current?.setAutoReconnect(true);
     mpClientRef.current?.createRoom(profileToRoomProfile(backendStateRef.current?.profile), startLevel);
   }, []);
 
   const handleJoinCoopRoom = useCallback((code: string) => {
     setCoopError(null);
+    mpClientRef.current?.setAutoReconnect(true);
     mpClientRef.current?.joinRoom(code, profileToRoomProfile(backendStateRef.current?.profile));
+  }, []);
+
+  const handleReconnectCoop = useCallback(() => {
+    setCoopError(null);
+    mpClientRef.current?.setAutoReconnect(true);
+    mpClientRef.current?.reconnectNow();
   }, []);
 
   const handleLeaveCoopRoom = useCallback(() => {
@@ -461,6 +516,7 @@ export default function App() {
   }, []);
 
   const handleRefreshCoopRooms = useCallback(() => {
+    mpClientRef.current?.setAutoReconnect(true);
     mpClientRef.current?.connect();
     mpClientRef.current?.refreshRooms();
   }, []);
@@ -472,6 +528,7 @@ export default function App() {
     if (coopRoom) {
       mpClientRef.current?.returnToLobby();
     } else {
+      mpClientRef.current?.setAutoReconnect(true);
       mpClientRef.current?.connect();
       mpClientRef.current?.refreshRooms();
     }
@@ -988,6 +1045,7 @@ export default function App() {
         onSetCoopLevel={handleSetCoopLevel}
         onStartCoopMatch={handleStartCoopMatch}
         onRefreshCoopRooms={handleRefreshCoopRooms}
+        onReconnectCoop={handleReconnectCoop}
         onReturnToCoopLobby={handleReturnToCoopLobby}
       />
 

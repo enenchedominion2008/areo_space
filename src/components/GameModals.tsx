@@ -114,6 +114,7 @@ interface GameModalsProps {
   onSetCoopLevel: (level: number) => void;
   onStartCoopMatch: () => void;
   onRefreshCoopRooms: () => void;
+  onReconnectCoop: () => void;
   onReturnToCoopLobby: () => void;
 }
 
@@ -156,6 +157,7 @@ export const GameModals: React.FC<GameModalsProps> = ({
   onSetCoopLevel,
   onStartCoopMatch,
   onRefreshCoopRooms,
+  onReconnectCoop,
   onReturnToCoopLobby,
 }) => {
   const [pilotDraft, setPilotDraft] = useState(backendState?.profile.pilot_name || 'VANGUARD-01');
@@ -845,6 +847,15 @@ export const GameModals: React.FC<GameModalsProps> = ({
                         ? 'CONNECTING TO ARENA SERVER...'
                         : 'ARENA LINK DISCONNECTED'}
                     </span>
+                    {wsStatus === 'disconnected' && (
+                      <button
+                        type="button"
+                        onClick={onReconnectCoop}
+                        className="ml-1 px-2 py-0.5 bg-sky-500/25 hover:bg-sky-500/40 border border-sky-400 text-sky-100 text-[10px] font-bold uppercase tracking-wider rounded-sm"
+                      >
+                        Reconnect
+                      </button>
+                    )}
                   </div>
                   <div className="flex items-center gap-1.5 text-[11px] text-slate-300">
                     <PilotRankBadge rank={getPilotRank(profile)} />
@@ -888,11 +899,10 @@ export const GameModals: React.FC<GameModalsProps> = ({
                         </div>
                         <button
                           type="button"
-                          disabled={wsStatus !== 'connected'}
                           onClick={() => onCreateCoopRoom(createLevel)}
-                          className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-[#020806] font-extrabold text-xs tracking-[0.18em] uppercase rounded-sm"
+                          className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-[#020806] font-extrabold text-xs tracking-[0.18em] uppercase rounded-sm"
                         >
-                          Create 2P Room
+                          {wsStatus === 'connected' ? 'Create 2P Room' : 'Connect & Create Room'}
                         </button>
                       </div>
 
@@ -910,16 +920,21 @@ export const GameModals: React.FC<GameModalsProps> = ({
                             placeholder="ABCD"
                             value={coopJoinCodeDraft}
                             onChange={(e) => setCoopJoinCodeDraft(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && coopJoinCodeDraft.trim().length === 4) {
+                                onJoinCoopRoom(coopJoinCodeDraft.trim());
+                              }
+                            }}
                             className="w-full px-3 py-2 bg-[#081320] border border-sky-500/50 text-white text-base font-extrabold tracking-[0.35em] text-center uppercase rounded-sm focus:outline-none focus:border-sky-300"
                           />
                         </div>
                         <button
                           type="button"
-                          disabled={wsStatus !== 'connected' || coopJoinCodeDraft.trim().length < 4}
+                          disabled={coopJoinCodeDraft.trim().length < 4}
                           onClick={() => onJoinCoopRoom(coopJoinCodeDraft.trim())}
                           className="w-full py-2.5 bg-sky-500/25 hover:bg-sky-500/40 disabled:opacity-45 border border-sky-400 text-sky-100 font-extrabold text-xs tracking-[0.18em] uppercase rounded-sm"
                         >
-                          Join 2P Room
+                          {wsStatus === 'connected' ? 'Join 2P Room' : 'Connect & Join Room'}
                         </button>
                       </div>
                     </div>
@@ -1083,12 +1098,20 @@ export const GameModals: React.FC<GameModalsProps> = ({
                                   </span>
                                   <span
                                     className={`px-2 py-0.5 text-[10px] font-bold uppercase border rounded-sm ${
-                                      isBayHost || player.ready
+                                      !player.connected
+                                        ? 'bg-amber-500/20 border-amber-400 text-amber-200 animate-pulse'
+                                        : isBayHost || player.ready
                                         ? 'bg-emerald-500/20 border-emerald-400 text-emerald-200'
                                         : 'bg-amber-500/20 border-amber-400 text-amber-200'
                                     }`}
                                   >
-                                    {isBayHost ? 'COMMANDER' : player.ready ? 'READY' : 'STANDBY'}
+                                    {!player.connected
+                                      ? 'RECONNECTING'
+                                      : isBayHost
+                                      ? 'COMMANDER'
+                                      : player.ready
+                                      ? 'READY'
+                                      : 'STANDBY'}
                                   </span>
                                 </div>
 

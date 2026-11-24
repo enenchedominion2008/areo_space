@@ -29,6 +29,7 @@ interface ClientConn {
   ws: WebSocket;
   roomCode: string | null;
   alive: boolean;
+  missedPings: number;
 }
 
 interface CoopRoom {
@@ -86,7 +87,7 @@ function sanitizeProfile(raw: unknown): RoomPlayerProfile {
 
 function normalizeRoomCode(raw: unknown): string | null {
   if (typeof raw !== 'string') return null;
-  const code = raw.trim().toUpperCase();
+  const code = raw.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
   return /^[A-Z0-9]{4}$/.test(code) ? code : null;
 }
 
@@ -103,6 +104,16 @@ export function attachCoopWebSocketServer(httpServer: http.Server): () => void {
 
   const clients = new Map<string, ClientConn>();
   const rooms = new Map<string, CoopRoom>();
+  const pendingLobbyRemovals = new Map<string, ReturnType<typeof setTimeout>>();
+
+  function clearPendingRemoval(roomCode: string, pId: string): void {
+    const key = `${roomCode}:${pId}`;
+    const timer = pendingLobbyRemovals.get(key);
+    if (timer) {
+      clearTimeout(timer);
+      pendingLobbyRemovals.delete(key);
+    }
+  }
 
   function generateRoomCode(): string {
     for (let attempt = 0; attempt < 40; attempt++) {
@@ -169,13 +180,45 @@ export function attachCoopWebSocketServer(httpServer: http.Server): () => void {
     }
   }
 
-  function removePlayerFromRoom(conn: ClientConn, reason: string): void {
+  function removePlayerFromRoom(conn: ClientConn, reason: string, immediate = false): void {
     if (!conn.roomCode) return;
-    const room = rooms.get(conn.roomCode);
+    const roomCode = conn.roomCode;
+    const room = rooms.get(roomCode);
     conn.roomCode = null;
     if (!room) return;
 
     const leaving = room.players.find((p) => p.playerId === conn.playerId);
+    if (!leaving) return;
+
+    // Give lobby pilots a 45-second grace window on accidental drops (e.g. mobile app-switch to share code)
+    if (!immediate && room.status === 'lobby') {
+      leaving.connected = false;
+      clearPendingRemoval(roomCode, conn.playerId);
+      const timer = setTimeout(() => {
+        pendingLobbyRemovals.delete(`${roomCode}:${conn.playerId}`);
+        const liveRoom = rooms.get(roomCode);
+        if (!liveRoom || liveRoom.status !== 'lobby') return;
+        const target = liveRoom.players.find((p) => p.playerId === conn.playerId);
+        if (!target || target.connected) return;
+
+        liveRoom.players = liveRoom.players.filter((p) => p.playerId !== conn.playerId);
+        if (liveRoom.players.length === 0) {
+          rooms.delete(roomCode);
+          broadcastOpenRoomsToIdle();
+          return;
+        }
+        const survivor = liveRoom.players[0];
+        survivor.slot = 1;
+        liveRoom.hostId = survivor.playerId;
+        broadcastRoomState(liveRoom);
+        broadcastOpenRoomsToIdle();
+      }, 45000);
+      pendingLobbyRemovals.set(`${roomCode}:${conn.playerId}`, timer);
+      broadcastRoomState(room);
+      return;
+    }
+
+    clearPendingRemoval(roomCode, conn.playerId);
     room.players = room.players.filter((p) => p.playerId !== conn.playerId);
 
     if (room.players.length === 0) {
@@ -196,7 +239,7 @@ export function attachCoopWebSocketServer(httpServer: http.Server): () => void {
       if (survivorConn) {
         sendTo(survivorConn.ws, {
           type: 'coop:partner_left',
-          reason: leaving ? `${leaving.pilotName} disconnected (${reason})` : `Wingmate disconnected (${reason})`,
+          reason: `${leaving.pilotName} disconnected (${reason})`,
         });
       }
     }
@@ -218,7 +261,7 @@ export function attachCoopWebSocketServer(httpServer: http.Server): () => void {
 
   wss.on('connection', (ws: WebSocket) => {
     const playerId = crypto.randomUUID();
-    const conn: ClientConn = { playerId, ws, roomCode: null, alive: true };
+    const conn: ClientConn = { playerId, ws, roomCode: null, alive: true, missedPings: 0 };
     clients.set(playerId, conn);
 
     sendTo(ws, { type: 'ws:welcome', playerId });
@@ -226,9 +269,13 @@ export function attachCoopWebSocketServer(httpServer: http.Server): () => void {
 
     ws.on('pong', () => {
       conn.alive = true;
+      conn.missedPings = 0;
     });
 
     ws.on('message', (rawData) => {
+      conn.alive = true;
+      conn.missedPings = 0;
+
       let msg: CoopClientToServerMessage;
       try {
         msg = JSON.parse(rawData.toString()) as CoopClientToServerMessage;
@@ -238,6 +285,11 @@ export function attachCoopWebSocketServer(httpServer: http.Server): () => void {
       }
       if (!msg || typeof msg.type !== 'string') return;
 
+      if (msg.type === 'ws:ping') {
+        sendTo(ws, { type: 'ws:pong' });
+        return;
+      }
+
       if (msg.type === 'room:list') {
         sendOpenRooms(ws);
         return;
@@ -245,7 +297,7 @@ export function attachCoopWebSocketServer(httpServer: http.Server): () => void {
 
       if (msg.type === 'room:create') {
         if (conn.roomCode) {
-          removePlayerFromRoom(conn, 'switched rooms');
+          removePlayerFromRoom(conn, 'switched rooms', true);
         }
         const profile = sanitizeProfile(msg.profile);
         const startLevel = Math.round(clampNumber(msg.startLevel, 1, 30, 1));
@@ -303,7 +355,7 @@ export function attachCoopWebSocketServer(httpServer: http.Server): () => void {
         }
 
         if (conn.roomCode) {
-          removePlayerFromRoom(conn, 'joined another room');
+          removePlayerFromRoom(conn, 'joined another room', true);
         }
 
         const profile = sanitizeProfile(msg.profile);
@@ -323,8 +375,41 @@ export function attachCoopWebSocketServer(httpServer: http.Server): () => void {
         return;
       }
 
+      if (msg.type === 'room:rejoin') {
+        const code = normalizeRoomCode(msg.code);
+        const prevId = typeof msg.previousPlayerId === 'string' ? msg.previousPlayerId : '';
+        if (!code || !prevId) return;
+        const targetRoom = rooms.get(code);
+        if (!targetRoom || targetRoom.status !== 'lobby') {
+          sendOpenRooms(ws);
+          return;
+        }
+        const existing = targetRoom.players.find((p) => p.playerId === prevId);
+        if (!existing) {
+          sendOpenRooms(ws);
+          return;
+        }
+        clearPendingRemoval(code, prevId);
+        const clean = sanitizeProfile(msg.profile);
+        if (targetRoom.hostId === prevId) {
+          targetRoom.hostId = playerId;
+        }
+        existing.playerId = playerId;
+        existing.connected = true;
+        existing.pilotName = clean.pilotName;
+        existing.pilotRank = clean.pilotRank;
+        existing.jetId = clean.jetId;
+        existing.skinId = clean.skinId;
+        existing.trailId = clean.trailId;
+        existing.equippedMods = clean.equippedMods;
+        conn.roomCode = code;
+        broadcastRoomState(targetRoom);
+        broadcastOpenRoomsToIdle();
+        return;
+      }
+
       if (msg.type === 'room:leave') {
-        removePlayerFromRoom(conn, 'left squadron');
+        removePlayerFromRoom(conn, 'left squadron', true);
         sendOpenRooms(ws);
         return;
       }
@@ -377,6 +462,13 @@ export function attachCoopWebSocketServer(httpServer: http.Server): () => void {
           return;
         }
         const guest = room.players.find((p) => p.playerId !== room.hostId);
+        if (guest && !guest.connected) {
+          sendTo(ws, {
+            type: 'room:error',
+            message: `${guest.pilotName} is reconnecting — wait a moment before launch.`,
+          });
+          return;
+        }
         if (guest && !guest.ready) {
           sendTo(ws, {
             type: 'room:error',
@@ -545,8 +637,9 @@ export function attachCoopWebSocketServer(httpServer: http.Server): () => void {
   });
 
   const onUpgrade = (req: http.IncomingMessage, socket: import('node:stream').Duplex, head: Buffer) => {
-    const pathname = (req.url || '').split('?')[0];
+    const pathname = (req.url || '').split('?')[0].replace(/\/+$/, '') || '/';
     if (pathname !== '/ws') return;
+    socket.on('error', () => {});
     wss.handleUpgrade(req, socket, head, (ws) => {
       wss.emit('connection', ws, req);
     });
@@ -557,20 +650,29 @@ export function attachCoopWebSocketServer(httpServer: http.Server): () => void {
   const heartbeat = setInterval(() => {
     for (const [id, conn] of clients.entries()) {
       if (!conn.alive) {
-        conn.ws.terminate();
-        clients.delete(id);
-        removePlayerFromRoom(conn, 'timeout');
-        continue;
+        conn.missedPings += 1;
+        if (conn.missedPings >= 3) {
+          conn.ws.terminate();
+          clients.delete(id);
+          removePlayerFromRoom(conn, 'timeout');
+          continue;
+        }
+      } else {
+        conn.missedPings = 0;
       }
       conn.alive = false;
       if (conn.ws.readyState === WebSocket.OPEN) {
         conn.ws.ping();
       }
     }
-  }, 25000);
+  }, 30000);
 
   return () => {
     clearInterval(heartbeat);
+    for (const timer of pendingLobbyRemovals.values()) {
+      clearTimeout(timer);
+    }
+    pendingLobbyRemovals.clear();
     httpServer.off('upgrade', onUpgrade);
     wss.close();
   };
