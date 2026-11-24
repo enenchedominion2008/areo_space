@@ -26,6 +26,7 @@ import type {
 import { TUTORIAL_STEPS, type TutorialStepId } from './game/tutorial';
 import {
   CYBER_MODS,
+  getPilotRank,
   type BackendState,
   type CyberModId,
   type GameCheckpointPayload,
@@ -45,6 +46,10 @@ const INITIAL_HUD: HudSnapshot = {
   multiplier: 1,
   maxMultiplier: 1,
   comboTimer: 0,
+  feverActive: false,
+  feverMeter: 0,
+  feverTimeLeft: 0,
+  bossSlowMoActive: false,
   wave: 1,
   totalLevels: 30,
   waveProgress: 0,
@@ -122,6 +127,7 @@ function enterMobileLandscape(): void {
 function profileToRoomProfile(profile?: PilotProfile | null): RoomPlayerProfile {
   return {
     pilotName: profile?.pilot_name || 'VANGUARD-01',
+    pilotRank: getPilotRank(profile).id,
     jetId: profile?.selected_jet || 'vanguard',
     skinId: profile?.selected_skin || 'factory',
     trailId: profile?.selected_trail || 'jet_default',

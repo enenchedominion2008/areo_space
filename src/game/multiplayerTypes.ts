@@ -7,6 +7,7 @@ import type {
   FragmentKind,
   JetId,
   JetSkinId,
+  PilotRankId,
   TrailColorId,
 } from './types.ts';
 
@@ -18,6 +19,7 @@ export type PendingAttackKind = 'none' | 'aimed' | 'spread' | 'tracking' | 'area
 
 export interface RoomPlayerProfile {
   pilotName: string;
+  pilotRank?: PilotRankId;
   jetId: JetId;
   skinId: JetSkinId;
   trailId: TrailColorId;
@@ -43,6 +45,7 @@ export interface RoomStatePayload {
 export interface OpenRoomListing {
   code: string;
   hostName: string;
+  hostRank?: PilotRankId;
   hostJet: JetId;
   startLevel: number;
   playersCount: number;

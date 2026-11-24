@@ -72,6 +72,8 @@ const SHIELD_PULSE_COOLDOWN = 12.0;
 const BOSS_CHASE_DURATION = 11.5;
 const BOSS_CHASE_ENTER_DURATION = 1.1;
 const BOSS_CHASE_EXIT_DURATION = 1.0;
+const FEVER_DURATION = 9.0;
+const BOSS_SLOWMO_DURATION = 1.25;
 
 interface PlayerBolt {
   active: boolean;
@@ -154,6 +156,8 @@ interface EnemyActor {
   attackCycleIndex: number;
   bossPhaseNotified: number;
   scoreValue: number;
+  formationLock?: boolean;
+  droneSweepDir?: number;
 }
 
 interface AreaHazard {
@@ -272,16 +276,20 @@ export class SpaceShooterEngine {
   private multiplier = 1;
   private maxMultiplier = 1;
   private comboTimer = 0;
+  private feverTimer = 0;
+  private bossSlowMoTimer = 0;
   private wave = 1; // 1..30
   private waveKills = 0;
   private waveTotal = 6;
-  private waveSpawnQueue: EnemyKind[] = [];
+  private waveSpawnQueue: Array<EnemyKind | 'v_squad'> = [];
   private bossPending = true;
   private bossSpawned = false;
   private kills = 0;
   private shotsFired = 0;
   private shotsHit = 0;
   private spawnCooldown = 0;
+  private goldenDroneTimer = 8.0;
+  private goldenDroneSpawnedThisWave = false;
   private fragmentDropTimer = 7.5;
   private fragmentAmbientCount = 0;
   private nextEnemyId = 1;
@@ -889,6 +897,8 @@ export class SpaceShooterEngine {
     this.multiplier = 1;
     this.maxMultiplier = 1;
     this.comboTimer = 0;
+    this.feverTimer = 0;
+    this.bossSlowMoTimer = 0;
     this.kills = 0;
     this.shotsFired = 0;
     this.shotsHit = 0;
@@ -980,6 +990,8 @@ export class SpaceShooterEngine {
     this.multiplier = 1;
     this.maxMultiplier = 1;
     this.comboTimer = 0;
+    this.feverTimer = 0;
+    this.bossSlowMoTimer = 0;
     this.kills = 0;
     this.shotsFired = 0;
     this.shotsHit = 0;
@@ -1156,9 +1168,30 @@ export class SpaceShooterEngine {
         this.coopProcessedKills.add(msg.enemyId);
         const isBoss = msg.kind === 'dreadnought';
         const isHeavy = msg.kind === 'gunship' || msg.kind === 'bomber';
-        this.spawnExplosion(msg.x, msg.y, msg.z, isBoss ? 52 : isHeavy ? 24 : 15, 0xff7b1c, isBoss ? 24 : 13);
+        const isGolden = msg.kind === 'golden_drone';
+        this.spawnExplosion(
+          msg.x,
+          msg.y,
+          msg.z,
+          isBoss ? 52 : isGolden ? 32 : isHeavy ? 24 : 15,
+          isGolden ? 0xfacc15 : 0xff7b1c,
+          isBoss ? 24 : 13
+        );
         this.spawnExplosion(msg.x, msg.y, msg.z, isBoss ? 26 : 8, 0xfef08a, 10);
-        this.audio.playExplosion(isBoss ? 'boss' : isHeavy ? 'medium' : 'small');
+        if (isGolden) {
+          this.audio.playGoldenDroneDrop();
+        } else {
+          this.audio.playExplosion(isBoss ? 'boss' : isHeavy ? 'medium' : 'small');
+        }
+        if (isBoss) {
+          this.bossSlowMoTimer = BOSS_SLOWMO_DURATION;
+          this.hitstopTimer = Math.max(this.hitstopTimer, 0.08);
+          this.empRingMesh.position.set(msg.x, msg.y, msg.z);
+          this.empRingMesh.scale.setScalar(1.2);
+          (this.empRingMesh.material as THREE.MeshBasicMaterial).color.setHex(0xfbbf24);
+          this.empRingMesh.visible = true;
+          this.empRingTimer = 0.75;
+        }
         const idx = this.enemies.findIndex((e) => e.id === msg.enemyId);
         if (idx >= 0) {
           const e = this.enemies[idx];
@@ -1167,11 +1200,8 @@ export class SpaceShooterEngine {
           this.enemies.splice(idx, 1);
         }
         if (msg.killerSlot === this.coopLocalSlot) {
-          this.kills++;
-          this.comboTimer = 4.2;
-          this.multiplier = Math.min(5, this.multiplier + 1);
-          this.maxMultiplier = Math.max(this.maxMultiplier, this.multiplier);
-          const bonus = this.hasMod('fragment_magnet') ? 1.25 : 1.0;
+          this.registerKillCombo(isGolden);
+          const bonus = (this.hasMod('fragment_magnet') ? 1.25 : 1.0) * (this.feverTimer > 0 ? 1.25 : 1.0);
           this.score += Math.round(msg.scoreAward * bonus);
           if (this.score > this.highScore) this.highScore = this.score;
           if (this.hasMod('shield_siphon')) {
@@ -1305,6 +1335,8 @@ export class SpaceShooterEngine {
     this.wingmanFireCooldown = 0;
     this.wingmanLeftBlockCd = 0;
     this.wingmanRightBlockCd = 0;
+    this.feverTimer = 0;
+    this.bossSlowMoTimer = 0;
     this.invulnTimer = 1.5;
     this.resetBossChaseState(true);
     this.phase = 'playing';
@@ -1442,6 +1474,8 @@ export class SpaceShooterEngine {
     this.dataVirusTimer = 0;
     this.shogunDroneTimer = 0;
     this.kitsuneFoxfireTimer = 0;
+    this.feverTimer = 0;
+    this.bossSlowMoTimer = 0;
     this.shipZ = 0;
     this.phase = 'playing';
     this.lastTime = performance.now();
@@ -1519,51 +1553,105 @@ export class SpaceShooterEngine {
     this.bossPending = true;
     this.bossSpawned = false;
     this.bossSceneBlend = 0;
+    this.goldenDroneSpawnedThisWave = false;
+    this.goldenDroneTimer = THREE.MathUtils.randFloat(6.0, 10.5);
     this.resetBossChaseState(true);
 
+    const squadSize = cfg.level >= 6 ? 5 : 3;
+    let totalQueuedEnemies = 0;
     for (let i = 0; i < cfg.squadCount; i++) {
-      if (cfg.level >= 3 && i % 5 === 4) {
+      if (i === 2 || (cfg.level >= 5 && i === 7) || (cfg.level >= 10 && i === 12)) {
+        this.waveSpawnQueue.push('v_squad');
+        totalQueuedEnemies += squadSize;
+      } else if (cfg.level >= 3 && i % 5 === 4) {
         this.waveSpawnQueue.push('bomber');
+        totalQueuedEnemies += 1;
       } else if (cfg.level >= 2 && i % 3 === 2) {
         this.waveSpawnQueue.push('gunship');
+        totalQueuedEnemies += 1;
       } else {
         this.waveSpawnQueue.push('scout');
+        totalQueuedEnemies += 1;
       }
     }
 
-    this.waveTotal = cfg.squadCount + 1; // squad + end-of-level boss
+    this.waveTotal = totalQueuedEnemies + 1; // squad + end-of-level boss
     this.spawnCooldown = 0.65;
 
     const arenaName = ARENA_THEMES[cfg.arena].name;
     this.showBanner(`LEVEL ${cfg.level}/30 · ${arenaName}`, 2.6);
   }
 
-  private spawnEnemy(kind: EnemyKind): void {
+  private spawnFormationSquad(count: 3 | 5): void {
+    const centerX = THREE.MathUtils.randFloat(-this.boundsX * 0.42, this.boundsX * 0.42);
+    const centerY = THREE.MathUtils.randFloat(-1.4, 3.2);
+    const phase = Math.random() * Math.PI * 2;
+    const offsets: Array<[number, number, number]> = [
+      [0, 0, 0],
+      [-2.5, 0.45, -2.2],
+      [2.5, 0.45, -2.2],
+      [-5.0, 0.9, -4.4],
+      [5.0, 0.9, -4.4],
+    ];
+    for (let i = 0; i < count; i++) {
+      const [ox, oy, oz] = offsets[i];
+      this.spawnEnemy('scout', {
+        baseX: THREE.MathUtils.clamp(centerX + ox, -this.boundsX * 0.9, this.boundsX * 0.9),
+        baseY: THREE.MathUtils.clamp(centerY + oy, -2.5, 4.4),
+        targetZ: -27 + oz,
+        phaseOffset: phase,
+        formationLock: true,
+      });
+    }
+    this.audio.playEnemyWarning();
+    this.showBanner(`INTERCEPTOR V-SQUADRON (${count}x) INBOUND`, 1.7);
+  }
+
+  private spawnEnemy(
+    kind: EnemyKind,
+    overrides?: {
+      baseX?: number;
+      baseY?: number;
+      targetZ?: number;
+      phaseOffset?: number;
+      formationLock?: boolean;
+    }
+  ): void {
     const cfg = LEVELS[this.wave - 1];
     const rig = createEnemyModel(kind, this.wave);
     const waveScale = 1 + (this.wave - 1) * 0.14;
+    const droneSweepDir = Math.random() < 0.5 ? 1 : -1;
 
     const baseX =
-      kind === 'dreadnought'
+      overrides?.baseX ??
+      (kind === 'dreadnought'
         ? 0
-        : THREE.MathUtils.randFloat(-this.boundsX * 0.85, this.boundsX * 0.85);
+        : kind === 'golden_drone'
+        ? -droneSweepDir * (this.boundsX * 0.96)
+        : THREE.MathUtils.randFloat(-this.boundsX * 0.85, this.boundsX * 0.85));
     const baseY =
-      kind === 'dreadnought'
+      overrides?.baseY ??
+      (kind === 'dreadnought'
         ? 1.35
-        : THREE.MathUtils.randFloat(-2.4, 4.3);
+        : THREE.MathUtils.randFloat(-2.4, 4.3));
     const targetZ =
-      kind === 'dreadnought'
+      overrides?.targetZ ??
+      (kind === 'dreadnought'
         ? -38
+        : kind === 'golden_drone'
+        ? -25
         : kind === 'bomber'
         ? -36
         : kind === 'gunship'
         ? THREE.MathUtils.randFloat(-40, -28)
-        : THREE.MathUtils.randFloat(-34, -20);
+        : THREE.MathUtils.randFloat(-34, -20));
 
     const coopHpMult = this.coopActive ? (kind === 'dreadnought' ? 1.55 : 1.35) : 1.0;
     const hp = Math.round(
       (kind === 'dreadnought'
         ? cfg.bossHp
+        : kind === 'golden_drone'
+        ? Math.round(4 + this.wave * 0.85)
         : kind === 'bomber'
         ? Math.round(12 * waveScale)
         : kind === 'gunship'
@@ -1574,6 +1662,8 @@ export class SpaceShooterEngine {
     const radius =
       kind === 'dreadnought'
         ? 5.0
+        : kind === 'golden_drone'
+        ? 2.05
         : kind === 'bomber'
         ? 2.65
         : kind === 'gunship'
@@ -1583,6 +1673,8 @@ export class SpaceShooterEngine {
     const scoreValue =
       kind === 'dreadnought'
         ? 2500 + this.wave * 250
+        : kind === 'golden_drone'
+        ? 1200 + this.wave * 150
         : kind === 'bomber'
         ? 480
         : kind === 'gunship'
@@ -1606,9 +1698,21 @@ export class SpaceShooterEngine {
       maxHp: hp,
       radius,
       age: 0,
-      phaseOffset: Math.random() * Math.PI * 2,
-      fireTimer: kind === 'dreadnought' ? 1.4 : THREE.MathUtils.randFloat(0.9, 2.0),
-      bombTimer: kind === 'dreadnought' ? 3.2 : kind === 'bomber' ? 2.4 : 4.6,
+      phaseOffset: overrides?.phaseOffset ?? Math.random() * Math.PI * 2,
+      fireTimer:
+        kind === 'golden_drone'
+          ? 999
+          : kind === 'dreadnought'
+          ? 1.4
+          : THREE.MathUtils.randFloat(0.9, 2.0),
+      bombTimer:
+        kind === 'golden_drone'
+          ? 999
+          : kind === 'dreadnought'
+          ? 3.2
+          : kind === 'bomber'
+          ? 2.4
+          : 4.6,
       hitFlashTimer: 0,
       ramCooldown: 0,
       telegraphTimer: 0,
@@ -1619,7 +1723,27 @@ export class SpaceShooterEngine {
       attackCycleIndex: 0,
       bossPhaseNotified: 1,
       scoreValue,
+      formationLock: overrides?.formationLock,
+      droneSweepDir: kind === 'golden_drone' ? droneSweepDir : undefined,
     });
+  }
+
+  private registerKillCombo(isGoldenDrone = false): void {
+    this.kills++;
+    this.comboTimer = 4.6;
+    const prevMult = this.multiplier;
+    this.multiplier = Math.min(10, this.multiplier + (isGoldenDrone ? 2 : 1));
+    this.maxMultiplier = Math.max(this.maxMultiplier, this.multiplier);
+    if (this.multiplier >= 8) {
+      if (this.feverTimer <= 0 || prevMult < 8) {
+        this.feverTimer = FEVER_DURATION;
+        this.audio.playFeverStart();
+        this.showBanner('OVERCHARGE FEVER · HYPER FIRE & +25% DMG!', 2.2);
+        this.spawnExplosion(this.shipX, this.shipY, this.shipZ, 18, 0xfacc15, 14);
+      } else {
+        this.feverTimer = Math.min(FEVER_DURATION, this.feverTimer + 1.25);
+      }
+    }
   }
 
   private showBanner(text: string, duration = 2.2): void {
@@ -1682,7 +1806,11 @@ export class SpaceShooterEngine {
       }
     }
 
-    this.updateParticles(dt);
+    const particleSlowFactor =
+      this.bossSlowMoTimer > 0
+        ? 0.22 + 0.78 * (1 - this.bossSlowMoTimer / BOSS_SLOWMO_DURATION)
+        : 1.0;
+    this.updateParticles(dt * particleSlowFactor);
 
     if (this.composer && !this.isSoftwareGl) {
       this.composer.render();
@@ -1731,13 +1859,19 @@ export class SpaceShooterEngine {
     const levelCfg = LEVELS[this.wave - 1];
     const jet = JETS[this.jetId];
     if (this.dataVirusTimer > 0) this.dataVirusTimer = Math.max(0, this.dataVirusTimer - dt);
+    if (this.bossSlowMoTimer > 0) this.bossSlowMoTimer = Math.max(0, this.bossSlowMoTimer - dt);
+    if (this.feverTimer > 0) this.feverTimer = Math.max(0, this.feverTimer - dt);
+    const bossSlowFactor =
+      this.bossSlowMoTimer > 0
+        ? 0.22 + 0.78 * (1 - this.bossSlowMoTimer / BOSS_SLOWMO_DURATION)
+        : 1.0;
     const timeSlow =
       this.dataVirusTimer > 0
         ? 0.05
         : this.jetId === 'chrono' && this.specialActiveTimer > 0
         ? 0.4
         : 1.0;
-    const enemyDt = dt * timeSlow;
+    const enemyDt = dt * timeSlow * bossSlowFactor;
 
     const bossActive = this.enemies.some((e) => e.kind === 'dreadnought');
     this.bossSceneBlend = THREE.MathUtils.damp(this.bossSceneBlend, bossActive ? 1 : 0, 1.85, dt);
@@ -1747,10 +1881,12 @@ export class SpaceShooterEngine {
     const afterburnerActive = this.afterburnerActiveTimer > 0;
     const specialBoostActive = this.specialActiveTimer > 0;
     const scrollSpeed =
-      levelCfg.scrollSpeed +
-      (afterburnerActive ? 56 : 0) +
-      (specialBoostActive ? 20 : 0) +
-      (this.barrelRollTimer > 0 ? 18 : 0);
+      (levelCfg.scrollSpeed +
+        (afterburnerActive ? 56 : 0) +
+        (specialBoostActive ? 20 : 0) +
+        (this.feverTimer > 0 ? 12 : 0) +
+        (this.barrelRollTimer > 0 ? 18 : 0)) *
+      bossSlowFactor;
     this.environment.update(dt, scrollSpeed, this.sectorMode, bossActive, this.bossChaseBlend > 0.12);
 
     // Timers
@@ -2203,13 +2339,28 @@ export class SpaceShooterEngine {
     // 3. Level Wave Spawning + End-of-Level Boss Fight (Authoritative on Solo or Co-Op Host)
     const isAuthoritative = !this.coopActive || this.coopIsHost;
     if (isAuthoritative) {
+      if (!this.goldenDroneSpawnedThisWave && !this.bossSpawned && (this.waveSpawnQueue.length > 0 || this.enemies.length > 0)) {
+        this.goldenDroneTimer -= dt;
+        if (this.goldenDroneTimer <= 0) {
+          this.goldenDroneSpawnedThisWave = true;
+          this.spawnEnemy('golden_drone');
+          this.audio.playGoldenDroneAlert();
+          this.showBanner('RARE GOLDEN DRONE DETECTED · INTERCEPT!', 2.2);
+        }
+      }
+
       if (this.waveSpawnQueue.length > 0) {
         this.spawnCooldown -= enemyDt;
         const maxConcurrent = this.wave >= 6 ? 7 : 5;
         if (this.spawnCooldown <= 0 && this.enemies.length < maxConcurrent) {
-          const nextKind = this.waveSpawnQueue.shift()!;
-          this.spawnEnemy(nextKind);
-          this.spawnCooldown = Math.max(0.5, 1.25 - this.wave * 0.035);
+          const nextToken = this.waveSpawnQueue.shift()!;
+          if (nextToken === 'v_squad') {
+            this.spawnFormationSquad(this.wave >= 6 ? 5 : 3);
+            this.spawnCooldown = 1.65;
+          } else {
+            this.spawnEnemy(nextToken);
+            this.spawnCooldown = Math.max(0.5, 1.25 - this.wave * 0.035);
+          }
         }
       } else if (this.bossPending && !this.bossSpawned && this.enemies.length === 0) {
         // Spawn the End-of-Level Boss!
@@ -2217,7 +2368,7 @@ export class SpaceShooterEngine {
         this.bossSpawned = true;
         this.spawnEnemy('dreadnought');
         this.showBanner(`BOSS ALERT · ${levelCfg.bossTitle}`, 3.0);
-      } else if (this.bossSpawned && this.enemies.length === 0) {
+      } else if (this.bossSpawned && this.enemies.length === 0 && this.bossSlowMoTimer <= 0) {
         // Level Cleared!
         this.audio.playWaveClear();
         this.shield = Math.min(this.maxShield, this.shield + 35);
@@ -2623,10 +2774,12 @@ export class SpaceShooterEngine {
     const isRoninOverload = this.jetId === 'ronin_x' && this.specialActiveTimer > 0;
     const isValkyrieSiege = this.jetId === 'valkyrie' && this.specialActiveTimer > 0;
     const isChronoBoost = this.jetId === 'chrono' && this.specialActiveTimer > 0;
+    const isFever = this.feverTimer > 0;
     const tier = Math.min(5, this.laserLevel + (isVanguardOverdrive || isRoninOverload || isValkyrieSiege ? 1 : 0));
     const dmg =
       this.baseDamageMult *
-      (isRoninOverload ? 2.6 : isValkyrieSiege ? 1.4 : isVanguardOverdrive ? 1.35 : 1.0);
+      (isRoninOverload ? 2.6 : isValkyrieSiege ? 1.4 : isVanguardOverdrive ? 1.35 : 1.0) *
+      (isFever ? 1.25 : 1.0);
 
     let cooldown = 0.135;
     if (this.weaponPattern === 'stream') cooldown = 0.085;
@@ -2634,11 +2787,14 @@ export class SpaceShooterEngine {
     if (isVanguardOverdrive) cooldown *= 0.56;
     else if (isChronoBoost) cooldown *= 0.74;
     else if (isRoninOverload) cooldown *= 0.76;
+    if (isFever) cooldown *= 0.68;
 
     this.fireCooldown = cooldown;
 
     const boltSpeed = this.weaponPattern === 'stream' ? -145 : -128;
     const zOrigin = this.shipZ - 1.6;
+    const fScale = isFever ? 1.18 : 1.0;
+    const fColor = (base: number) => (isFever ? 0xfacc15 : base);
 
     if (this.weaponPattern === 'spread') {
       // Fan spread: 3 to 7 bolts depending on tier
@@ -2655,8 +2811,8 @@ export class SpaceShooterEngine {
           dmg * 0.9,
           false,
           false,
-          0xfbbf24,
-          1.05
+          fColor(0xfbbf24),
+          1.05 * fScale
         );
       }
     } else if (this.weaponPattern === 'stream') {
@@ -2675,8 +2831,8 @@ export class SpaceShooterEngine {
           dmg * 0.85,
           false,
           false,
-          0x4ade80,
-          0.95
+          fColor(0x4ade80),
+          0.95 * fScale
         );
       }
     } else if (this.weaponPattern === 'plasma') {
@@ -2694,14 +2850,14 @@ export class SpaceShooterEngine {
           dmg * 2.1,
           false,
           true,
-          0xe879f9,
-          1.75
+          fColor(0xe879f9),
+          1.75 * fScale
         );
       }
     } else if (this.weaponPattern === 'seeker') {
       // Main twin cannons + homing cyan seekers
-      this.spawnPlayerBolt(this.shipX - 0.62, this.shipY + 0.36, zOrigin, 0, 0, boltSpeed, dmg, false, false, 0x4ade80, 1);
-      this.spawnPlayerBolt(this.shipX + 0.62, this.shipY + 0.36, zOrigin, 0, 0, boltSpeed, dmg, false, false, 0x4ade80, 1);
+      this.spawnPlayerBolt(this.shipX - 0.62, this.shipY + 0.36, zOrigin, 0, 0, boltSpeed, dmg, false, false, fColor(0x4ade80), fScale);
+      this.spawnPlayerBolt(this.shipX + 0.62, this.shipY + 0.36, zOrigin, 0, 0, boltSpeed, dmg, false, false, fColor(0x4ade80), fScale);
       const seekers = Math.min(4, tier);
       for (let i = 0; i < seekers; i++) {
         const side = i % 2 === 0 ? -1 : 1;
@@ -2715,20 +2871,20 @@ export class SpaceShooterEngine {
           dmg * 0.85,
           true,
           false,
-          0x38bdf8,
-          1.15
+          isFever ? 0x38bdf8 : 0x38bdf8,
+          1.15 * fScale
         );
       }
     } else {
       // Twin base pattern: scales 2 -> 5 bolts as bullet level rises
-      this.spawnPlayerBolt(this.shipX - 0.62, this.shipY + 0.36, zOrigin, 0, 0, boltSpeed, dmg, false, false, 0x4ade80, 1);
-      this.spawnPlayerBolt(this.shipX + 0.62, this.shipY + 0.36, zOrigin, 0, 0, boltSpeed, dmg, false, false, 0x4ade80, 1);
+      this.spawnPlayerBolt(this.shipX - 0.62, this.shipY + 0.36, zOrigin, 0, 0, boltSpeed, dmg, false, false, fColor(0x4ade80), fScale);
+      this.spawnPlayerBolt(this.shipX + 0.62, this.shipY + 0.36, zOrigin, 0, 0, boltSpeed, dmg, false, false, fColor(0x4ade80), fScale);
       if (tier >= 2) {
-        this.spawnPlayerBolt(this.shipX, this.shipY + 0.44, zOrigin - 0.2, 0, 0, boltSpeed, dmg * 0.9, false, false, 0x86efac, 1.1);
+        this.spawnPlayerBolt(this.shipX, this.shipY + 0.44, zOrigin - 0.2, 0, 0, boltSpeed, dmg * 0.9, false, false, fColor(0x86efac), 1.1 * fScale);
       }
       if (tier >= 4) {
-        this.spawnPlayerBolt(this.shipX - 1.45, this.shipY + 0.1, zOrigin + 0.2, -5, 0, boltSpeed, dmg * 0.8, false, false, 0xe879f9, 1);
-        this.spawnPlayerBolt(this.shipX + 1.45, this.shipY + 0.1, zOrigin + 0.2, 5, 0, boltSpeed, dmg * 0.8, false, false, 0xe879f9, 1);
+        this.spawnPlayerBolt(this.shipX - 1.45, this.shipY + 0.1, zOrigin + 0.2, -5, 0, boltSpeed, dmg * 0.8, false, false, fColor(0xe879f9), fScale);
+        this.spawnPlayerBolt(this.shipX + 1.45, this.shipY + 0.1, zOrigin + 0.2, 5, 0, boltSpeed, dmg * 0.8, false, false, fColor(0xe879f9), fScale);
       }
     }
 
@@ -2744,7 +2900,7 @@ export class SpaceShooterEngine {
     this.rightRecoil = 0.22;
     (this.playerRig.leftMuzzle.material as THREE.MeshBasicMaterial).opacity = 0.92;
     (this.playerRig.rightMuzzle.material as THREE.MeshBasicMaterial).opacity = 0.92;
-    this.audio.playLaser(isVanguardOverdrive || isRoninOverload || tier >= 4);
+    this.audio.playLaser(isVanguardOverdrive || isRoninOverload || isFever || tier >= 4);
   }
 
   private updateEnemies(dt: number, realDt: number): void {
@@ -2814,6 +2970,63 @@ export class SpaceShooterEngine {
         continue;
       }
 
+      if (e.kind === 'golden_drone') {
+        e.z = THREE.MathUtils.damp(e.z, e.targetZ, 3.6, dt);
+        const dir = e.droneSweepDir ?? 1;
+        const progress = Math.min(1, e.age / 8.8);
+        const sweepX = THREE.MathUtils.lerp(-dir * this.boundsX * 0.95, dir * this.boundsX * 0.95, progress);
+        const targetY = THREE.MathUtils.clamp(e.baseY + Math.sin(e.age * 4.4) * 1.9, -2.8, 4.6);
+        e.x = THREE.MathUtils.damp(e.x, sweepX, 4.5, dt);
+        e.y = THREE.MathUtils.damp(e.y, targetY, 4.5, dt);
+        e.rig.group.position.set(e.x, e.y, e.z);
+        e.rig.group.rotation.y += realDt * 3.2;
+        e.rig.group.rotation.z = Math.sin(e.age * 4.0) * 0.25;
+        if (Math.random() < 0.35) {
+          this.spawnTrailParticle(e.x, e.y, e.z, (Math.random() - 0.5) * 3, (Math.random() - 0.5) * 3, 6, 0xfacc15, 0.75);
+        }
+        if (e.hitFlashTimer > 0) {
+          e.hitFlashTimer -= realDt;
+          const flashOn = e.hitFlashTimer > 0;
+          e.rig.hitMeshes.forEach((m, idx) => {
+            const mat = m.material as THREE.MeshStandardMaterial;
+            if (flashOn) {
+              mat.emissive.setHex(0xffffff);
+              mat.emissiveIntensity = 1.8;
+            } else {
+              mat.emissive.copy(e.rig.baseEmissives[idx]);
+              mat.emissiveIntensity = e.rig.baseEmissiveIntensities[idx];
+            }
+          });
+        }
+        if (afterburnerActive) {
+          const dx = e.x - this.shipX;
+          const dy = e.y - this.shipY;
+          const dz = Math.abs(e.z - this.shipZ);
+          const ramHitRadius = e.radius + 2.35;
+          if (dz <= e.radius + 3.2 && dx * dx + dy * dy <= ramHitRadius * ramHitRadius) {
+            this.spawnExplosion(e.x, e.y, e.z, 24, 0xfacc15, 16);
+            this.damageEnemy(i, e.hp + 999, e.x, e.y, e.z);
+            this.cameraShake = Math.min(0.75, this.cameraShake + 0.22);
+            continue;
+          }
+        }
+        if (e.age >= 8.8) {
+          this.spawnExplosion(e.x, e.y, e.z, 12, 0xfacc15, 10);
+          this.scene.remove(e.rig.group);
+          disposeObjectTree(e.rig.group);
+          this.enemies.splice(i, 1);
+          continue;
+        }
+        const dxL = e.x - this.shipX;
+        const dyL = e.y - this.shipY;
+        const aimDistL = Math.hypot(dxL, dyL);
+        if (aimDistL < bestLockDist) {
+          bestLockDist = aimDistL;
+          lockedEnemy = e;
+        }
+        continue;
+      }
+
       if (afterburnerActive) {
         // Sweep enemies rapidly through the player's super-speed corridor for exciting ramming passes
         const passSpeed = e.kind === 'dreadnought' ? 20 : 31;
@@ -2825,15 +3038,15 @@ export class SpaceShooterEngine {
         e.z = THREE.MathUtils.damp(e.z, e.targetZ, e.kind === 'dreadnought' ? 1.6 : 2.6, dt);
       }
 
-      const swayAmp = e.kind === 'dreadnought' ? 4.8 : e.kind === 'bomber' ? 3.5 : e.kind === 'gunship' ? 3.8 : 3.4;
-      const swayFreq = e.kind === 'dreadnought' ? 0.6 : e.kind === 'bomber' ? 0.75 : e.kind === 'gunship' ? 0.9 : 1.45;
+      const swayAmp = e.formationLock ? 2.5 : e.kind === 'dreadnought' ? 4.8 : e.kind === 'bomber' ? 3.5 : e.kind === 'gunship' ? 3.8 : 3.4;
+      const swayFreq = e.formationLock ? 1.05 : e.kind === 'dreadnought' ? 0.6 : e.kind === 'bomber' ? 0.75 : e.kind === 'gunship' ? 0.9 : 1.45;
       const targetX = THREE.MathUtils.clamp(
         e.baseX + Math.sin(e.age * swayFreq + e.phaseOffset) * swayAmp,
         -this.boundsX,
         this.boundsX
       );
       const targetY = THREE.MathUtils.clamp(
-        e.baseY + Math.cos(e.age * swayFreq * 0.8 + e.phaseOffset) * 1.4,
+        e.baseY + Math.cos(e.age * swayFreq * 0.8 + e.phaseOffset) * (e.formationLock ? 0.85 : 1.4),
         -3.5,
         5.0
       );
@@ -3896,33 +4109,68 @@ export class SpaceShooterEngine {
     disposeObjectTree(e.rig.group);
     this.enemies.splice(index, 1);
 
-    this.waveKills++;
+    const isBoss = e.kind === 'dreadnought';
+    const isHeavy = e.kind === 'gunship' || e.kind === 'bomber';
+    const isGoldenDrone = e.kind === 'golden_drone';
+
+    if (!isGoldenDrone) {
+      this.waveKills++;
+    }
     const creditedToLocal = !this.coopActive || attackerSlot === this.coopLocalSlot;
     if (creditedToLocal) {
-      this.kills++;
-      this.comboTimer = 4.2;
-      this.multiplier = Math.min(5, this.multiplier + 1);
-      this.maxMultiplier = Math.max(this.maxMultiplier, this.multiplier);
+      this.registerKillCombo(isGoldenDrone);
 
-      const scoreBonus = this.hasMod('fragment_magnet') ? 1.25 : 1.0;
+      const scoreBonus = (this.hasMod('fragment_magnet') ? 1.25 : 1.0) * (this.feverTimer > 0 ? 1.25 : 1.0);
       const points = Math.round(e.scoreValue * this.multiplier * scoreBonus);
       this.score += points;
       if (this.score > this.highScore) this.highScore = this.score;
 
       if (this.hasMod('shield_siphon')) {
-        this.shield = Math.min(this.maxShield, this.shield + (e.kind === 'dreadnought' ? 12 : 3));
+        this.shield = Math.min(this.maxShield, this.shield + (isBoss ? 12 : 3));
       }
     }
 
-    const isBoss = e.kind === 'dreadnought';
-    const isHeavy = e.kind === 'gunship' || e.kind === 'bomber';
-    this.spawnExplosion(e.x, e.y, e.z, isBoss ? 52 : isHeavy ? 24 : 15, 0xff7b1c, isBoss ? 24 : 13);
+    this.spawnExplosion(
+      e.x,
+      e.y,
+      e.z,
+      isBoss ? 52 : isGoldenDrone ? 34 : isHeavy ? 24 : 15,
+      isGoldenDrone ? 0xfacc15 : 0xff7b1c,
+      isBoss ? 24 : 13
+    );
     this.spawnExplosion(e.x, e.y, e.z, isBoss ? 26 : 8, 0xfef08a, 10);
-    this.audio.playExplosion(isBoss ? 'boss' : isHeavy ? 'medium' : 'small');
+    if (isGoldenDrone) {
+      this.audio.playGoldenDroneDrop();
+      this.showBanner('GOLDEN DRONE DESTROYED · WINGMAN + UPGRADE!', 2.1);
+    } else {
+      this.audio.playExplosion(isBoss ? 'boss' : isHeavy ? 'medium' : 'small');
+    }
 
-    this.cameraShake = Math.min(0.85, this.cameraShake + (isBoss ? 0.65 : isHeavy ? 0.28 : 0.14));
+    this.cameraShake = Math.min(0.85, this.cameraShake + (isBoss ? 0.65 : isGoldenDrone ? 0.32 : isHeavy ? 0.28 : 0.14));
     if (isBoss || isHeavy) {
-      this.hitstopTimer = isBoss ? 0.065 : 0.03;
+      this.hitstopTimer = isBoss ? 0.08 : 0.03;
+    }
+
+    if (isBoss) {
+      this.bossSlowMoTimer = BOSS_SLOWMO_DURATION;
+      this.empRingMesh.position.set(e.x, e.y, e.z);
+      this.empRingMesh.scale.setScalar(1.2);
+      (this.empRingMesh.material as THREE.MeshBasicMaterial).color.setHex(0xfbbf24);
+      this.empRingMesh.visible = true;
+      this.empRingTimer = 0.75;
+      // Clear lingering enemy bolts/bombs cleanly during celebratory boss takedown slow-mo
+      for (const eb of this.enemyBolts) {
+        if (eb.active) {
+          eb.active = false;
+          eb.mesh.visible = false;
+        }
+      }
+      for (const bomb of this.enemyBombs) {
+        this.spawnExplosion(bomb.x, bomb.y, bomb.z, 8, 0xfbbf24, 9);
+        this.scene.remove(bomb.mesh);
+        disposeObjectTree(bomb.mesh);
+      }
+      this.enemyBombs = [];
     }
 
     if (this.coopActive && this.coopIsHost) {
@@ -3940,13 +4188,20 @@ export class SpaceShooterEngine {
     }
 
     // Drop Crystal Weapon / Support / Wingman Fragment
-    const dropRoll = Math.random();
-    if (isBoss || dropRoll < (isHeavy ? 0.52 : 0.24)) {
-      const wingmanChance = isBoss ? 0.28 : 0.14;
-      const pool: FragmentKind[] = ['spread', 'stream', 'plasma', 'seeker', 'shield', 'hull'];
-      const kind: FragmentKind =
-        Math.random() < wingmanChance ? 'wingman' : pool[Math.floor(Math.random() * pool.length)];
-      this.spawnFragment(e.x, e.y, e.z, kind);
+    if (isGoldenDrone) {
+      const weaponPool: FragmentKind[] = ['spread', 'stream', 'plasma', 'seeker'];
+      const weaponDrop = weaponPool[Math.floor(Math.random() * weaponPool.length)];
+      this.spawnFragment(e.x - 1.2, e.y, e.z, 'wingman');
+      this.spawnFragment(e.x + 1.2, e.y, e.z, weaponDrop);
+    } else {
+      const dropRoll = Math.random();
+      if (isBoss || dropRoll < (isHeavy ? 0.52 : 0.24)) {
+        const wingmanChance = isBoss ? 0.28 : 0.14;
+        const pool: FragmentKind[] = ['spread', 'stream', 'plasma', 'seeker', 'shield', 'hull'];
+        const kind: FragmentKind =
+          Math.random() < wingmanChance ? 'wingman' : pool[Math.floor(Math.random() * pool.length)];
+        this.spawnFragment(e.x, e.y, e.z, kind);
+      }
     }
   }
 
@@ -4022,7 +4277,6 @@ export class SpaceShooterEngine {
     this.shieldRegenDelay = isHeavy ? 4.4 : 3.2;
     this.invulnTimer = opts?.invulnDuration ?? (isHeavy ? 0.42 : 0.22);
     this.cameraShake = Math.min(1.0, this.cameraShake + (isHeavy ? 0.65 : 0.36));
-    this.multiplier = Math.max(1, this.multiplier - 1);
 
     // Apply physical knockback jolt away from incoming hit
     if (opts?.sourceX !== undefined && opts?.sourceY !== undefined) {
@@ -4053,6 +4307,16 @@ export class SpaceShooterEngine {
     } else {
       this.health = Math.max(0, this.health - amount);
       hullDamaged = true;
+    }
+
+    if (hullDamaged) {
+      this.multiplier = Math.max(1, this.multiplier - 2);
+      if (this.feverTimer > 0) {
+        this.feverTimer = 0;
+        this.showBanner('OVERCHARGE INTERRUPTED', 1.4);
+      }
+    } else {
+      this.multiplier = Math.max(1, this.multiplier - 1);
     }
 
     this.lastHitHull = hullDamaged;
@@ -4414,7 +4678,16 @@ export class SpaceShooterEngine {
           syncTargetZ: se.z,
           hp: se.hp,
           maxHp: se.maxHp,
-          radius: se.kind === 'dreadnought' ? 5.0 : se.kind === 'bomber' ? 2.65 : se.kind === 'gunship' ? 2.45 : 1.65,
+          radius:
+            se.kind === 'dreadnought'
+              ? 5.0
+              : se.kind === 'golden_drone'
+              ? 2.05
+              : se.kind === 'bomber'
+              ? 2.65
+              : se.kind === 'gunship'
+              ? 2.45
+              : 1.65,
           age: 0,
           phaseOffset: 0,
           fireTimer: 99,
@@ -4673,7 +4946,14 @@ export class SpaceShooterEngine {
       highScore: this.highScore,
       multiplier: this.multiplier,
       maxMultiplier: this.maxMultiplier,
-      comboTimer: Math.max(0, this.comboTimer / 4.2),
+      comboTimer: Math.max(0, this.comboTimer / 4.6),
+      feverActive: this.feverTimer > 0,
+      feverMeter:
+        this.feverTimer > 0
+          ? Math.min(1, this.feverTimer / FEVER_DURATION)
+          : Math.min(1, Math.max(0, (this.multiplier - 1) / 7)),
+      feverTimeLeft: this.feverTimer,
+      bossSlowMoActive: this.bossSlowMoTimer > 0,
       wave: this.wave,
       totalLevels: 30,
       waveProgress: this.waveKills,

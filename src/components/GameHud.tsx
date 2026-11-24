@@ -147,6 +147,15 @@ export const GameHud: React.FC<GameHudProps> = ({
           }}
         />
       )}
+      {hud.feverActive && hud.hitFlash <= 0.03 && (
+        <div
+          className="fixed inset-0 pointer-events-none"
+          style={{
+            boxShadow: 'inset 0 0 64px rgba(250, 204, 21, 0.28)',
+            border: '1px solid rgba(250, 204, 21, 0.35)',
+          }}
+        />
+      )}
       {/* Top Perimeter */}
       <div className="absolute top-0 inset-x-0 flex items-start justify-between gap-2 sm:gap-4 p-2 pt-[max(0.5rem,env(safe-area-inset-top))] pl-[max(0.625rem,env(safe-area-inset-left))] pr-[max(0.625rem,env(safe-area-inset-right))] sm:p-4">
         {/* Top-Left: Primary Score & Optional Co-Op Partner Telemetry */}
@@ -299,15 +308,38 @@ export const GameHud: React.FC<GameHudProps> = ({
         {/* Top-Right: Controls, Compact Multiplier & Unobtrusive Mini Radar */}
         <div className="flex flex-col items-end gap-1.5">
           <div className="flex items-center gap-1.5">
-            <div className="bg-[#040b14]/75 border border-fuchsia-400/30 px-2 py-1 rounded-sm text-right">
+            <div
+              className={`px-2 py-1 rounded-sm text-right border transition-colors ${
+                hud.feverActive
+                  ? 'bg-[#211502]/88 border-amber-300 shadow-[0_0_16px_rgba(250,204,21,0.55)]'
+                  : 'bg-[#040b14]/75 border-fuchsia-400/30'
+              }`}
+            >
               <div className="flex items-baseline gap-1.5">
-                <span className="text-[9px] text-fuchsia-300/70">MULT</span>
-                <span className="text-sm sm:text-base font-bold text-fuchsia-300 tabular-nums leading-none">
+                <span
+                  className={`text-[9px] font-bold ${
+                    hud.feverActive ? 'text-amber-300 animate-pulse' : 'text-fuchsia-300/70'
+                  }`}
+                >
+                  {hud.feverActive ? 'FEVER' : 'MULT'}
+                </span>
+                <span
+                  className={`text-sm sm:text-base font-bold tabular-nums leading-none ${
+                    hud.feverActive ? 'text-amber-200' : 'text-fuchsia-300'
+                  }`}
+                >
                   x{hud.multiplier}
                 </span>
               </div>
               <div className="mt-1 h-0.5 w-14 sm:w-16 bg-slate-800 overflow-hidden">
-                <div className="h-full bg-fuchsia-400" style={{ width: `${Math.round(hud.comboTimer * 100)}%` }} />
+                <div
+                  className={`h-full transition-[width] duration-75 ${
+                    hud.feverActive ? 'bg-amber-300' : 'bg-fuchsia-400'
+                  }`}
+                  style={{
+                    width: `${Math.round((hud.feverActive ? hud.feverMeter : hud.comboTimer) * 100)}%`,
+                  }}
+                />
               </div>
             </div>
 
@@ -385,10 +417,19 @@ export const GameHud: React.FC<GameHudProps> = ({
                     />
                   );
                 }
-                const r = blip.kind === 'dreadnought' ? 4.4 : blip.kind === 'bomb' ? 2.6 : 2.8;
+                const r =
+                  blip.kind === 'dreadnought'
+                    ? 4.4
+                    : blip.kind === 'golden_drone'
+                    ? 3.6
+                    : blip.kind === 'bomb'
+                    ? 2.6
+                    : 2.8;
                 const fill =
                   blip.kind === 'bomb'
                     ? '#ef4444'
+                    : blip.kind === 'golden_drone'
+                    ? '#facc15'
                     : blip.kind === 'dreadnought'
                     ? '#f97316'
                     : '#fb923c';

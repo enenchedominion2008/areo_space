@@ -27,7 +27,113 @@ export type ArenaThemeId =
   | 'obsidian_citadel'
   | 'zenith_omega';
 
-export type EnemyKind = 'scout' | 'gunship' | 'bomber' | 'dreadnought';
+export type EnemyKind = 'scout' | 'gunship' | 'bomber' | 'dreadnought' | 'golden_drone';
+
+export type PilotRankId = 'cadet' | 'wingman' | 'ace' | 'vanguard' | 'legend' | 'sovereign';
+
+export interface PilotRankSpec {
+  id: PilotRankId;
+  title: string;
+  shortTag: string;
+  color: string;
+  minKills: number;
+  minWave: number;
+  minScore: number;
+}
+
+export const PILOT_RANKS: Record<PilotRankId, PilotRankSpec> = {
+  cadet: {
+    id: 'cadet',
+    title: 'CADET',
+    shortTag: 'CDT',
+    color: '#94a3b8',
+    minKills: 0,
+    minWave: 1,
+    minScore: 0,
+  },
+  wingman: {
+    id: 'wingman',
+    title: 'WINGMAN',
+    shortTag: 'WGM',
+    color: '#38bdf8',
+    minKills: 30,
+    minWave: 3,
+    minScore: 5000,
+  },
+  ace: {
+    id: 'ace',
+    title: 'INTERCEPTOR ACE',
+    shortTag: 'ACE',
+    color: '#34d399',
+    minKills: 120,
+    minWave: 8,
+    minScore: 25000,
+  },
+  vanguard: {
+    id: 'vanguard',
+    title: 'VANGUARD ELITE',
+    shortTag: 'VGD',
+    color: '#e879f9',
+    minKills: 350,
+    minWave: 15,
+    minScore: 75000,
+  },
+  legend: {
+    id: 'legend',
+    title: 'CYBER LEGEND',
+    shortTag: 'LGD',
+    color: '#fbbf24',
+    minKills: 800,
+    minWave: 22,
+    minScore: 180000,
+  },
+  sovereign: {
+    id: 'sovereign',
+    title: 'APEX SOVEREIGN',
+    shortTag: 'APX',
+    color: '#fb7185',
+    minKills: 1500,
+    minWave: 30,
+    minScore: 350000,
+  },
+};
+
+export const PILOT_RANK_ORDER: PilotRankId[] = [
+  'cadet',
+  'wingman',
+  'ace',
+  'vanguard',
+  'legend',
+  'sovereign',
+];
+
+export function getPilotRank(
+  stats?: { total_kills?: number; best_wave?: number; high_score?: number } | null
+): PilotRankSpec {
+  const kills = stats?.total_kills ?? 0;
+  const wave = stats?.best_wave ?? 0;
+  const score = stats?.high_score ?? 0;
+  let earned: PilotRankSpec = PILOT_RANKS.cadet;
+  for (const id of PILOT_RANK_ORDER) {
+    const spec = PILOT_RANKS[id];
+    if (kills >= spec.minKills || wave >= spec.minWave || score >= spec.minScore) {
+      earned = spec;
+    }
+  }
+  return earned;
+}
+
+export function getLeaderboardEntryRank(entry: {
+  kills: number;
+  wave: number;
+  score: number;
+}): PilotRankSpec {
+  return getPilotRank({
+    total_kills: entry.kills,
+    best_wave: entry.wave,
+    high_score: entry.score,
+  });
+}
 
 export type BombKind = 'cluster' | 'mine' | 'torpedo';
 
@@ -806,6 +912,10 @@ export interface HudSnapshot {
   multiplier: number;
   maxMultiplier: number;
   comboTimer: number;
+  feverActive: boolean;
+  feverMeter: number;
+  feverTimeLeft: number;
+  bossSlowMoActive: boolean;
   wave: number; // 1..30 level
   totalLevels: number;
   waveProgress: number;

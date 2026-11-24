@@ -5,10 +5,12 @@ import {
   CYBER_MODS,
   JET_SKINS,
   JETS,
+  PILOT_RANKS,
   TRAIL_COLORS,
   type CyberModId,
   type JetId,
   type JetSkinId,
+  type PilotRankId,
   type TrailColorId,
 } from '../src/game/types.ts';
 import {
@@ -43,6 +45,7 @@ const VALID_JETS = new Set(Object.keys(JETS));
 const VALID_SKINS = new Set(Object.keys(JET_SKINS));
 const VALID_TRAILS = new Set(Object.keys(TRAIL_COLORS));
 const VALID_MODS = new Set(Object.keys(CYBER_MODS));
+const VALID_RANKS = new Set(Object.keys(PILOT_RANKS));
 const VALID_ABILITIES = new Set(['afterburner', 'special', 'shield_pulse', 'roll', 'missile']);
 
 function sanitizePilotName(raw: unknown): string {
@@ -58,6 +61,8 @@ function sanitizeProfile(raw: unknown): RoomPlayerProfile {
     typeof obj.skinId === 'string' && VALID_SKINS.has(obj.skinId) ? (obj.skinId as JetSkinId) : 'factory';
   const trailId: TrailColorId =
     typeof obj.trailId === 'string' && VALID_TRAILS.has(obj.trailId) ? (obj.trailId as TrailColorId) : 'jet_default';
+  const pilotRank: PilotRankId =
+    typeof obj.pilotRank === 'string' && VALID_RANKS.has(obj.pilotRank) ? (obj.pilotRank as PilotRankId) : 'cadet';
 
   const equippedMods: CyberModId[] = [];
   if (Array.isArray(obj.equippedMods)) {
@@ -71,6 +76,7 @@ function sanitizeProfile(raw: unknown): RoomPlayerProfile {
 
   return {
     pilotName: sanitizePilotName(obj.pilotName),
+    pilotRank,
     jetId,
     skinId,
     trailId,
@@ -144,6 +150,7 @@ export function attachCoopWebSocketServer(httpServer: http.Server): () => void {
         list.push({
           code: room.code,
           hostName: host.pilotName,
+          hostRank: host.pilotRank || 'cadet',
           hostJet: host.jetId,
           startLevel: room.startLevel,
           playersCount: room.players.length,
@@ -335,6 +342,7 @@ export function attachCoopWebSocketServer(httpServer: http.Server): () => void {
       if (msg.type === 'room:profile') {
         const clean = sanitizeProfile(msg.profile);
         sender.pilotName = clean.pilotName;
+        sender.pilotRank = clean.pilotRank;
         sender.jetId = clean.jetId;
         sender.skinId = clean.skinId;
         sender.trailId = clean.trailId;

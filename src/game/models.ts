@@ -790,6 +790,62 @@ export function createEnemyModel(kind: EnemyKind, levelSeed = 1): EnemyRig {
     return halo;
   };
 
+  if (kind === 'golden_drone') {
+    const goldHullMat = new THREE.MeshStandardMaterial({
+      color: 0xfacc15,
+      metalness: 0.92,
+      roughness: 0.15,
+      emissive: 0xd97706,
+      emissiveIntensity: 0.52,
+    });
+    const whiteTrimMat = new THREE.MeshStandardMaterial({
+      color: 0xfef08a,
+      emissive: 0xfde047,
+      emissiveIntensity: 0.95,
+      roughness: 0.18,
+      metalness: 0.3,
+    });
+    const cyanCoreMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      emissive: 0x38bdf8,
+      emissiveIntensity: 1.4,
+      roughness: 0.1,
+      metalness: 0.2,
+    });
+
+    const coreBody = new THREE.Mesh(new THREE.OctahedronGeometry(0.95, 0), goldHullMat);
+    coreBody.scale.set(1.25, 0.72, 1.45);
+    registerHit(coreBody);
+    group.add(coreBody);
+
+    const haloRing = new THREE.Mesh(new THREE.TorusGeometry(1.55, 0.11, 8, 28), whiteTrimMat);
+    haloRing.rotation.x = Math.PI / 2;
+    registerHit(haloRing);
+    group.add(haloRing);
+
+    for (const side of [-1, 1]) {
+      const wing = new THREE.Mesh(new THREE.BoxGeometry(1.45, 0.14, 0.85), goldHullMat.clone());
+      wing.position.set(side * 1.4, 0, -0.15);
+      wing.rotation.z = side * 0.28;
+      registerHit(wing);
+      group.add(wing);
+
+      const pod = new THREE.Mesh(new THREE.SphereGeometry(0.28, 10, 10), whiteTrimMat.clone());
+      pod.position.set(side * 2.05, 0.15, -0.1);
+      registerHit(pod);
+      group.add(pod);
+    }
+
+    const core = new THREE.Mesh(new THREE.OctahedronGeometry(0.42, 0), cyanCoreMat);
+    core.position.set(0, 0.08, 1.25);
+    registerHit(core);
+    group.add(core);
+
+    const telegraphHalo = makeTelegraphHalo(1.65, 1.25);
+    group.scale.setScalar(1.18);
+    return { group, hitMeshes, coreMesh: core, telegraphHalo, baseEmissives, baseEmissiveIntensities };
+  }
+
   if (kind === 'scout') {
     const wingShape = createCyberWingShape(1.65, 1.85, -0.25);
     const wingGeo = new THREE.ExtrudeGeometry(wingShape, {

@@ -34,13 +34,18 @@ import {
   JET_SKINS,
   JETS,
   LEVELS,
+  PILOT_RANKS,
+  PILOT_RANK_ORDER,
   TRAIL_COLORS,
+  getLeaderboardEntryRank,
+  getPilotRank,
   type BackendState,
   type CyberModId,
   type GamePhase,
   type HudSnapshot,
   type JetId,
   type JetSkinId,
+  type PilotRankSpec,
   type SaveSlotRecord,
   type TrailColorId,
 } from '../game/types';
@@ -52,6 +57,21 @@ import type {
 } from '../game/multiplayerTypes';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 import { JetPreviewCanvas } from './JetPreviewCanvas';
+
+const PilotRankBadge: React.FC<{ rank: PilotRankSpec; full?: boolean }> = ({ rank, full = false }) => (
+  <span
+    className="inline-flex items-center gap-1 px-1.5 py-0.5 border rounded-sm text-[9px] sm:text-[10px] font-extrabold uppercase tracking-wider shrink-0"
+    style={{
+      color: rank.color,
+      borderColor: `${rank.color}70`,
+      backgroundColor: `${rank.color}18`,
+    }}
+    title={rank.title}
+  >
+    <Award className="w-2.5 h-2.5 shrink-0" />
+    <span>{full ? rank.title : rank.shortTag}</span>
+  </span>
+);
 
 export type ModalTab = 'none' | 'slots' | 'hangar' | 'leaderboard' | 'coop';
 
@@ -322,30 +342,49 @@ export const GameModals: React.FC<GameModalsProps> = ({
 
                 return (
                   <div className="space-y-4">
-                    {/* Top Callsign & Credits Row */}
-                    <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-[#040a12] border border-slate-700/80 rounded-sm">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-slate-400">Callsign</span>
-                        <input
-                          type="text"
-                          maxLength={20}
-                          value={pilotDraft}
-                          onChange={(e) => setPilotDraft(e.target.value)}
-                          className="px-2.5 py-1.5 bg-[#081320] border border-emerald-500/40 text-white text-xs font-bold uppercase tracking-wider focus:outline-none focus:border-emerald-400"
-                        />
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() => onUpdatePilotName(pilotDraft)}
-                          className="px-3 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/35 border border-emerald-400/60 text-emerald-200 text-xs font-bold whitespace-nowrap shrink-0"
-                        >
-                          Save
-                        </button>
-                      </div>
-                      <div className="text-sm font-bold text-amber-300 tabular-nums">
-                        {(profile?.credits ?? 0).toLocaleString()} CR
-                      </div>
-                    </div>
+                    {/* Top Callsign, Pilot Rank & Credits Row */}
+                    {(() => {
+                      const careerRank = getPilotRank(profile);
+                      const curIdx = PILOT_RANK_ORDER.indexOf(careerRank.id);
+                      const nextRank =
+                        curIdx >= 0 && curIdx + 1 < PILOT_RANK_ORDER.length
+                          ? PILOT_RANKS[PILOT_RANK_ORDER[curIdx + 1]]
+                          : null;
+                      return (
+                        <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-[#040a12] border border-slate-700/80 rounded-sm">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <PilotRankBadge rank={careerRank} full />
+                            <span className="text-xs text-slate-400">Callsign</span>
+                            <input
+                              type="text"
+                              maxLength={20}
+                              value={pilotDraft}
+                              onChange={(e) => setPilotDraft(e.target.value)}
+                              className="px-2.5 py-1.5 bg-[#081320] border border-emerald-500/40 text-white text-xs font-bold uppercase tracking-wider focus:outline-none focus:border-emerald-400"
+                            />
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => onUpdatePilotName(pilotDraft)}
+                              className="px-3 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/35 border border-emerald-400/60 text-emerald-200 text-xs font-bold whitespace-nowrap shrink-0"
+                            >
+                              Save
+                            </button>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            {nextRank && (
+                              <span className="hidden md:inline text-[10px] text-slate-400">
+                                Next: <span style={{ color: nextRank.color }}>{nextRank.title}</span> (
+                                {nextRank.minKills}K / Lvl {nextRank.minWave})
+                              </span>
+                            )}
+                            <div className="text-sm font-bold text-amber-300 tabular-nums">
+                              {(profile?.credits ?? 0).toLocaleString()} CR
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     {/* Hero 3D Jet Showcase with < > Carousel & In-View Color / Wingtip Thrusters Controls */}
                     <JetPreviewCanvas
@@ -760,23 +799,27 @@ export const GameModals: React.FC<GameModalsProps> = ({
                   </div>
                 ) : (
                   <div className="divide-y divide-slate-800 border border-slate-800 bg-[#040a12]">
-                    {leaderboard.map((entry, idx) => (
-                      <div key={entry.id} className="flex items-center justify-between px-4 py-2.5 text-xs">
-                        <div className="flex flex-wrap items-center gap-2.5">
-                          <span className="w-6 text-amber-300 font-bold tabular-nums">#{idx + 1}</span>
-                          <span className="font-bold text-white">{entry.pilot_name}</span>
-                          <span className="text-fuchsia-300">
-                            {JETS[entry.selected_jet || 'vanguard']?.name}
-                          </span>
-                          <span className="text-slate-400 tabular-nums">
-                            Lvl {entry.wave}/30 · {entry.kills} Kills
+                    {leaderboard.map((entry, idx) => {
+                      const entryRank = getLeaderboardEntryRank(entry);
+                      return (
+                        <div key={entry.id} className="flex items-center justify-between px-4 py-2.5 text-xs">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="w-6 text-amber-300 font-bold tabular-nums">#{idx + 1}</span>
+                            <PilotRankBadge rank={entryRank} />
+                            <span className="font-bold text-white">{entry.pilot_name}</span>
+                            <span className="text-fuchsia-300">
+                              {JETS[entry.selected_jet || 'vanguard']?.name}
+                            </span>
+                            <span className="text-slate-400 tabular-nums">
+                              Lvl {entry.wave}/30 · {entry.kills} Kills
+                            </span>
+                          </div>
+                          <span className="text-emerald-300 font-bold tabular-nums text-sm">
+                            {entry.score.toLocaleString()}
                           </span>
                         </div>
-                        <span className="text-emerald-300 font-bold tabular-nums text-sm">
-                          {entry.score.toLocaleString()}
-                        </span>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </>
@@ -803,9 +846,10 @@ export const GameModals: React.FC<GameModalsProps> = ({
                         : 'ARENA LINK DISCONNECTED'}
                     </span>
                   </div>
-                  <div className="text-[11px] text-slate-300">
+                  <div className="flex items-center gap-1.5 text-[11px] text-slate-300">
+                    <PilotRankBadge rank={getPilotRank(profile)} />
                     <span className="font-bold text-white">{profile?.pilot_name || 'VANGUARD-01'}</span>
-                    <span className="mx-1.5 text-slate-500">·</span>
+                    <span className="text-slate-500">·</span>
                     <span style={{ color: activeJet.primaryColor }}>{activeJet.name}</span>
                   </div>
                 </div>
@@ -910,6 +954,7 @@ export const GameModals: React.FC<GameModalsProps> = ({
                                 <span className="px-2 py-0.5 bg-sky-500/20 border border-sky-400/60 text-sky-200 font-extrabold tracking-widest">
                                   {r.code}
                                 </span>
+                                <PilotRankBadge rank={PILOT_RANKS[r.hostRank || 'cadet'] || PILOT_RANKS.cadet} />
                                 <span className="font-bold text-white">{r.hostName}</span>
                                 <span style={{ color: JETS[r.hostJet]?.primaryColor || '#38bdf8' }}>
                                   {JETS[r.hostJet]?.name || r.hostJet}
@@ -1047,8 +1092,14 @@ export const GameModals: React.FC<GameModalsProps> = ({
                                   </span>
                                 </div>
 
-                                <div className="text-base font-extrabold text-white truncate">
-                                  {player.pilotName}
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <div className="text-base font-extrabold text-white truncate">
+                                    {player.pilotName}
+                                  </div>
+                                  <PilotRankBadge
+                                    rank={PILOT_RANKS[player.pilotRank || 'cadet'] || PILOT_RANKS.cadet}
+                                    full
+                                  />
                                 </div>
 
                                 <div className="text-xs font-bold" style={{ color: jet?.primaryColor || '#38bdf8' }}>
@@ -1148,14 +1199,15 @@ export const GameModals: React.FC<GameModalsProps> = ({
     return (
       <div className="title-screen fixed inset-0 z-20 flex flex-col justify-between overflow-y-auto p-5 sm:p-10 pointer-events-none font-mono">
         <div className="title-screen__header flex flex-wrap items-center justify-between gap-2">
-          <div className="bg-[#040b14]/84 border border-emerald-400/40 px-3 py-1.5 rounded-sm text-[11px] sm:text-xs">
-            <span className="text-slate-400">PILOT </span>
+          <div className="bg-[#040b14]/84 border border-emerald-400/40 px-3 py-1.5 rounded-sm text-[11px] sm:text-xs flex flex-wrap items-center gap-1.5">
+            <PilotRankBadge rank={getPilotRank(profile)} />
+            <span className="text-slate-400">PILOT</span>
             <span className="text-white font-bold">{profile?.pilot_name || 'VANGUARD-01'}</span>
-            <span className="mx-2 text-emerald-500">·</span>
+            <span className="text-emerald-500">·</span>
             <span className="font-bold" style={{ color: activeJet.primaryColor }}>
               {activeJet.name}
             </span>
-            <span className="mx-2 text-emerald-500">·</span>
+            <span className="text-emerald-500">·</span>
             <span className="text-emerald-300 tabular-nums">
               HI {(profile?.high_score ?? 0).toLocaleString()}
             </span>
@@ -1550,6 +1602,10 @@ export const GameModals: React.FC<GameModalsProps> = ({
           )}
 
           <div className="end-screen-credits p-2.5 bg-[#040a12] border border-amber-500/40 text-center space-y-1">
+            <div className="flex items-center justify-center gap-2 text-[11px] text-slate-300">
+              <span>PILOT RANK:</span>
+              <PilotRankBadge rank={getPilotRank(profile)} full />
+            </div>
             {lastRunCredits !== null && (
               <div className="text-xs text-amber-300 font-bold">
                 +{lastRunCredits.toLocaleString()} CREDITS EARNED THIS RUN
