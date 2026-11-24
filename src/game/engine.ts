@@ -72,7 +72,7 @@ const SHIELD_PULSE_COOLDOWN = 12.0;
 const BOSS_CHASE_DURATION = 11.5;
 const BOSS_CHASE_ENTER_DURATION = 1.1;
 const BOSS_CHASE_EXIT_DURATION = 1.0;
-const FEVER_DURATION = 9.0;
+const FEVER_DURATION = 4.5;
 const BOSS_SLOWMO_DURATION = 1.25;
 
 interface PlayerBolt {
@@ -1741,7 +1741,7 @@ export class SpaceShooterEngine {
         this.showBanner('OVERCHARGE FEVER · HYPER FIRE & +25% DMG!', 2.2);
         this.spawnExplosion(this.shipX, this.shipY, this.shipZ, 18, 0xfacc15, 14);
       } else {
-        this.feverTimer = Math.min(FEVER_DURATION, this.feverTimer + 1.25);
+        this.feverTimer = Math.min(FEVER_DURATION, this.feverTimer + 0.35);
       }
     }
   }
