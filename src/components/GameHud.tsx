@@ -137,7 +137,7 @@ export const GameHud: React.FC<GameHudProps> = ({
     'ring-4 ring-amber-300 shadow-[0_0_26px_rgba(251,191,36,0.95)] scale-110 z-30 animate-pulse';
 
   return (
-    <div className="fixed inset-0 pointer-events-none z-20 flex flex-col justify-between p-2.5 pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] sm:p-4 font-mono select-none">
+    <div className="fixed inset-0 pointer-events-none z-20 font-mono select-none">
       {hud.hitFlash > 0.03 && (
         <div
           className="fixed inset-0 pointer-events-none"
@@ -148,39 +148,98 @@ export const GameHud: React.FC<GameHudProps> = ({
         />
       )}
       {/* Top Perimeter */}
-      <div className="flex items-start justify-between gap-2 sm:gap-4">
-        {/* Top-Left: Primary Score & Compact Secondary Metadata */}
-        <div className="bg-[#040b14]/78 border border-emerald-400/30 px-2.5 py-1.5 rounded-sm">
-          <div className="flex items-center gap-1.5 text-[9px] sm:text-[10px] tracking-[0.14em] text-emerald-300/75 uppercase">
-            <span>LVL {hud.wave}/{hud.totalLevels}</span>
-            {hud.coop?.active ? (
-              <>
-                <span className="text-sky-400">·</span>
-                <span className="text-sky-300 font-bold">2P · {hud.coop.roomCode}</span>
-              </>
-            ) : (
-              <>
-                <span className="hidden md:inline text-slate-500">·</span>
-                <span className="hidden md:inline text-slate-400">{hud.arenaName}</span>
-              </>
-            )}
+      <div className="absolute top-0 inset-x-0 flex items-start justify-between gap-2 sm:gap-4 p-2 pt-[max(0.5rem,env(safe-area-inset-top))] pl-[max(0.625rem,env(safe-area-inset-left))] pr-[max(0.625rem,env(safe-area-inset-right))] sm:p-4">
+        {/* Top-Left: Primary Score & Optional Co-Op Partner Telemetry */}
+        <div className="flex flex-col items-start gap-1.5">
+          <div className="bg-[#040b14]/78 border border-emerald-400/30 px-2.5 py-1.5 rounded-sm">
+            <div className="flex items-center gap-1.5 text-[9px] sm:text-[10px] tracking-[0.14em] text-emerald-300/75 uppercase">
+              <span>LVL {hud.wave}/{hud.totalLevels}</span>
+              {hud.coop?.active ? (
+                <>
+                  <span className="text-sky-400">·</span>
+                  <span className="text-sky-300 font-bold">2P · {hud.coop.roomCode}</span>
+                </>
+              ) : (
+                <>
+                  <span className="hidden md:inline text-slate-500">·</span>
+                  <span className="hidden md:inline text-slate-400">{hud.arenaName}</span>
+                </>
+              )}
+            </div>
+            <div className="text-base sm:text-2xl font-bold tracking-wider text-white tabular-nums leading-tight">
+              {hud.coop?.active
+                ? `TEAM ${hud.coop.teamScore.toLocaleString()}`
+                : hud.score.toLocaleString()}
+            </div>
+            <div className="flex items-center gap-2 text-[9px] text-slate-400 tabular-nums">
+              {hud.coop?.active ? (
+                <span>YOU {hud.score.toLocaleString()}</span>
+              ) : (
+                <span>HI {hud.highScore.toLocaleString()}</span>
+              )}
+              <span>·</span>
+              <span>
+                {hud.waveProgress}/{hud.waveTotal}
+              </span>
+            </div>
           </div>
-          <div className="text-lg sm:text-2xl font-bold tracking-wider text-white tabular-nums leading-tight">
-            {hud.coop?.active
-              ? `TEAM ${hud.coop.teamScore.toLocaleString()}`
-              : hud.score.toLocaleString()}
-          </div>
-          <div className="flex items-center gap-2 text-[9px] text-slate-400 tabular-nums">
-            {hud.coop?.active ? (
-              <span>YOU {hud.score.toLocaleString()}</span>
-            ) : (
-              <span>HI {hud.highScore.toLocaleString()}</span>
-            )}
-            <span>·</span>
-            <span>
-              {hud.waveProgress}/{hud.waveTotal}
-            </span>
-          </div>
+
+          {hud.coop?.active && hud.coop.partner && (
+            <div className="w-36 sm:w-52 bg-[#04111d]/88 border border-sky-400/55 px-2 py-1 rounded-sm">
+              <div className="flex items-center justify-between gap-1 text-[9px] sm:text-[10px] font-bold tracking-wider uppercase">
+                <span className="text-sky-200 truncate">
+                  P{hud.coop.partner.slot} · {hud.coop.partner.pilotName}
+                </span>
+                <span
+                  className={`shrink-0 tabular-nums ${
+                    !hud.coop.partner.connected
+                      ? 'text-rose-400'
+                      : hud.coop.partner.downed
+                      ? 'text-amber-300'
+                      : 'text-emerald-300'
+                  }`}
+                >
+                  {!hud.coop.partner.connected
+                    ? 'LEFT'
+                    : hud.coop.partner.downed
+                    ? `${hud.coop.partner.respawnTimeLeft.toFixed(1)}s`
+                    : 'LIVE'}
+                </span>
+              </div>
+              <div className="mt-0.5 flex items-center justify-between text-[8px] text-slate-400 tabular-nums">
+                <span className="truncate">{JETS[hud.coop.partner.jetId]?.name || hud.coop.partner.jetId}</span>
+                <span className="shrink-0 ml-1">
+                  {hud.coop.partner.score.toLocaleString()} · {hud.coop.partner.kills}K
+                </span>
+              </div>
+              <div className="mt-1 space-y-0.5">
+                <div className="h-1 w-full bg-slate-900 overflow-hidden">
+                  <div
+                    className="h-full bg-sky-400 transition-[width] duration-75"
+                    style={{
+                      width: `${Math.max(
+                        0,
+                        Math.min(100, (hud.coop.partner.shield / Math.max(1, hud.coop.partner.maxShield)) * 100)
+                      )}%`,
+                    }}
+                  />
+                </div>
+                <div className="h-1 w-full bg-slate-900 overflow-hidden">
+                  <div
+                    className={`h-full transition-[width] duration-75 ${
+                      hud.coop.partner.downed ? 'bg-amber-400' : 'bg-emerald-400'
+                    }`}
+                    style={{
+                      width: `${Math.max(
+                        0,
+                        Math.min(100, (hud.coop.partner.health / Math.max(1, hud.coop.partner.maxHealth)) * 100)
+                      )}%`,
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Top-Center: Boss Bar & Brief Tactical Banner */}
@@ -340,66 +399,8 @@ export const GameHud: React.FC<GameHudProps> = ({
         </div>
       </div>
 
-      {/* Bottom Perimeter: Left Hull/Joystick + Right Ability Cluster (Center Ship Area Completely Open) */}
-      <div className="flex items-end justify-between gap-2">
-        {/* Bottom-Left: Wingman Timer, Compact Shield/Hull Bars + Optional Virtual Joystick */}
-        <div className="flex flex-col items-start gap-2">
-          {hud.coop?.active && hud.coop.partner && (
-            <div className="w-36 sm:w-52 bg-[#04111d]/88 border border-sky-400/55 px-2.5 py-1.5 rounded-sm">
-              <div className="flex items-center justify-between gap-1 text-[9px] sm:text-[10px] font-bold tracking-wider uppercase">
-                <span className="text-sky-200 truncate">
-                  P{hud.coop.partner.slot} · {hud.coop.partner.pilotName}
-                </span>
-                <span
-                  className={`shrink-0 tabular-nums ${
-                    !hud.coop.partner.connected
-                      ? 'text-rose-400'
-                      : hud.coop.partner.downed
-                      ? 'text-amber-300'
-                      : 'text-emerald-300'
-                  }`}
-                >
-                  {!hud.coop.partner.connected
-                    ? 'LEFT'
-                    : hud.coop.partner.downed
-                    ? `${hud.coop.partner.respawnTimeLeft.toFixed(1)}s`
-                    : 'LIVE'}
-                </span>
-              </div>
-              <div className="mt-0.5 flex items-center justify-between text-[8px] text-slate-400 tabular-nums">
-                <span className="truncate">{JETS[hud.coop.partner.jetId]?.name || hud.coop.partner.jetId}</span>
-                <span className="shrink-0 ml-1">
-                  {hud.coop.partner.score.toLocaleString()} · {hud.coop.partner.kills}K
-                </span>
-              </div>
-              <div className="mt-1 space-y-1">
-                <div className="h-1 w-full bg-slate-900 overflow-hidden">
-                  <div
-                    className="h-full bg-sky-400 transition-[width] duration-75"
-                    style={{
-                      width: `${Math.max(
-                        0,
-                        Math.min(100, (hud.coop.partner.shield / Math.max(1, hud.coop.partner.maxShield)) * 100)
-                      )}%`,
-                    }}
-                  />
-                </div>
-                <div className="h-1 w-full bg-slate-900 overflow-hidden">
-                  <div
-                    className={`h-full transition-[width] duration-75 ${
-                      hud.coop.partner.downed ? 'bg-amber-400' : 'bg-emerald-400'
-                    }`}
-                    style={{
-                      width: `${Math.max(
-                        0,
-                        Math.min(100, (hud.coop.partner.health / Math.max(1, hud.coop.partner.maxHealth)) * 100)
-                      )}%`,
-                    }}
-                  />
-                </div>
-              </div>
-            </div>
-          )}
+      {/* Bottom-Left: Wingman Timer, Compact Shield/Hull Bars + Optional Virtual Joystick */}
+      <div className="absolute bottom-0 left-0 flex flex-col items-start gap-1.5 pl-[max(0.625rem,env(safe-area-inset-left))] pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:p-4">
 
           {hud.wingmanTimeLeft > 0 && (
             <div className="w-36 sm:w-52 bg-[#04121d]/88 border border-sky-400/70 px-2.5 py-1.5 rounded-sm">
@@ -503,7 +504,7 @@ export const GameHud: React.FC<GameHudProps> = ({
               onPointerMove={handleJoyMove}
               onPointerUp={handleJoyUp}
               onPointerCancel={handleJoyUp}
-              className={`pointer-events-auto ml-11 mb-6 sm:ml-14 sm:mb-7 relative w-24 h-24 sm:w-28 sm:h-28 rounded-full border-2 bg-[#040d17]/65 flex items-center justify-center touch-none ${
+              className={`pointer-events-auto ml-11 mb-4 sm:ml-14 sm:mb-5 relative w-24 h-24 sm:w-28 sm:h-28 rounded-full border-2 bg-[#040d17]/65 flex items-center justify-center touch-none ${
                 tutorialHighlight === 'move'
                   ? 'border-amber-300 ring-4 ring-amber-300/90 shadow-[0_0_24px_rgba(251,191,36,0.85)] animate-pulse'
                   : 'border-emerald-400/50'
@@ -520,8 +521,8 @@ export const GameHud: React.FC<GameHudProps> = ({
           )}
         </div>
 
-        {/* Bottom-Right: Ergonomic Combat Abilities Cluster (Both Desktop & Mobile) */}
-        <div className="pointer-events-auto flex flex-col items-end gap-2">
+        {/* Bottom-Right: Ergonomic Combat Abilities Cluster (Pinned Independently to Bottom-Right) */}
+        <div className="absolute bottom-0 right-0 pointer-events-auto flex flex-col items-end gap-1.5 sm:gap-2 pr-[max(0.625rem,env(safe-area-inset-right))] pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:p-4">
           {/* Top Tactical Row: Missiles [R], Shield Pulse [C], Roll [SHIFT] */}
           <div className="flex items-center gap-2">
             {/* Homing Missile Barrage */}
@@ -720,7 +721,6 @@ export const GameHud: React.FC<GameHudProps> = ({
             </div>
           </div>
         </div>
-      </div>
     </div>
   );
 };
