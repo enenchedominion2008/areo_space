@@ -28,6 +28,9 @@ import {
   Radio,
   ChevronLeft,
   ChevronRight,
+  Smartphone,
+  Tablet,
+  Monitor,
 } from 'lucide-react';
 import {
   CYBER_MODS,
@@ -56,6 +59,7 @@ import type {
   RoomStatePayload,
 } from '../game/multiplayerTypes';
 import { usePWAInstall } from '../hooks/usePWAInstall';
+import { useDeviceInfo } from '../hooks/useDeviceInfo';
 import { JetPreviewCanvas } from './JetPreviewCanvas';
 
 const PilotRankBadge: React.FC<{ rank: PilotRankSpec; full?: boolean }> = ({ rank, full = false }) => (
@@ -169,6 +173,7 @@ export const GameModals: React.FC<GameModalsProps> = ({
   const [showInstallGuide, setShowInstallGuide] = useState(false);
   const [copiedAppUrl, setCopiedAppUrl] = useState(false);
   const { isInstallable, isInstalled, isIOS, isAndroid, install } = usePWAInstall();
+  const deviceInfo = useDeviceInfo();
 
   const profile = backendState?.profile;
   const selectedJetId: JetId = profile?.selected_jet || hud.jetId || 'vanguard';
@@ -1236,7 +1241,7 @@ export const GameModals: React.FC<GameModalsProps> = ({
             </span>
           </div>
 
-          <div className="flex items-center gap-2 pointer-events-auto">
+          <div className="flex flex-wrap items-center gap-2 pointer-events-auto">
             {!isInstalled && (
               <button
                 type="button"
@@ -1247,6 +1252,20 @@ export const GameModals: React.FC<GameModalsProps> = ({
                 <span>{isInstallable ? 'Install App' : 'Get Phone App'}</span>
               </button>
             )}
+
+            <div
+              className="bg-[#040b14]/84 border border-cyan-400/40 px-2.5 sm:px-3 py-1.5 rounded-sm text-[10px] sm:text-[11px] text-cyan-200 flex items-center gap-1.5 uppercase tracking-wider"
+              title={deviceInfo.detailsTooltip}
+            >
+              {deviceInfo.formFactor === 'phone' ? (
+                <Smartphone className="w-3.5 h-3.5 text-cyan-300 shrink-0" />
+              ) : deviceInfo.formFactor === 'tablet' ? (
+                <Tablet className="w-3.5 h-3.5 text-cyan-300 shrink-0" />
+              ) : (
+                <Monitor className="w-3.5 h-3.5 text-cyan-300 shrink-0" />
+              )}
+              <span>{deviceInfo.displayLabel}</span>
+            </div>
 
             <div className="bg-[#040b14]/84 border border-fuchsia-400/35 px-3 py-1.5 rounded-sm text-[10px] sm:text-[11px] text-fuchsia-200 flex items-center gap-1.5">
               <Database className="w-3.5 h-3.5 text-fuchsia-400" />
